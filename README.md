@@ -49,6 +49,7 @@ Available examples:
 - [examples/hello_world_counter.js](examples/hello_world_counter.js): renders `Hello world` and an increment button
 - [examples/text_input_echo.js](examples/text_input_echo.js): controlled text input with live echo
 - [examples/select_input_echo.js](examples/select_input_echo.js): controlled select input backed by labeled options
+- [examples/flex_form.js](examples/flex_form.js): centered form layout using web-style flex props
 
 Run any example directly:
 
@@ -60,6 +61,12 @@ For example:
 
 ```sh
 cargo run -- examples/select_input_echo.js
+```
+
+Or try the centered flex form example:
+
+```sh
+cargo run -- examples/flex_form.js
 ```
 
 Or use the helper script:
@@ -113,6 +120,37 @@ SelectInput({
     borderRadius: 8,
     borderColor: '#C7CDD4'
   }
+});
+```
+
+## Flex Layout API
+
+`View` behaves like a flex container and now accepts more web-style layout props in addition to the existing aliases.
+
+Supported layout props include:
+
+- `flexDirection` or `direction`: `'row' | 'column'`
+- `gap` or `spacing`: number
+- `justifyContent`: `'start' | 'center' | 'end' | 'flex-start' | 'flex-end' | 'space-between' | 'space-around' | 'space-evenly'`
+- `alignItems`: `'start' | 'center' | 'end' | 'stretch' | 'flex-start' | 'flex-end'`
+- `width` / `height`: number, `'fill'`, `'auto'`, or `'shrink'`
+
+Example:
+
+```js
+View({
+  style: {
+    width: 'fill',
+    height: 'fill',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 14
+  },
+  children: [
+    Text({ text: 'Centered content' }),
+    Button({ text: 'Save' })
+  ]
 });
 ```
 

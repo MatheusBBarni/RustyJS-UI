@@ -59,15 +59,36 @@ function flattenChildren(target, value) {
     }
 }
 
+function normalizeFlexValue(value) {
+    if (typeof value !== 'string') {
+        return value;
+    }
+
+    switch (value.trim().toLowerCase()) {
+        case 'flex-start':
+            return 'start';
+        case 'flex-end':
+            return 'end';
+        case 'space-between':
+            return 'space_between';
+        case 'space-around':
+            return 'space_around';
+        case 'space-evenly':
+            return 'space_evenly';
+        default:
+            return value;
+    }
+}
+
 function normalizeStyle(style = {}) {
     return {
         direction: style.direction ?? style.flexDirection,
         padding: style.padding,
-        spacing: style.spacing,
+        spacing: style.spacing ?? style.gap,
         width: style.width,
         height: style.height,
-        alignItems: style.alignItems,
-        justifyContent: style.justifyContent,
+        alignItems: normalizeFlexValue(style.alignItems),
+        justifyContent: normalizeFlexValue(style.justifyContent),
         backgroundColor: style.backgroundColor,
         borderColor: style.borderColor,
         borderWidth: style.borderWidth,

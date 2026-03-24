@@ -6,7 +6,7 @@ use crate::style::{
 use crate::vdom::{ButtonNode, SelectInputNode, TextInputNode, TextNode, UiNode, ViewNode};
 use iced::theme;
 use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
-use iced::{Alignment, Background, Color, Element, Length, Padding, Theme};
+use iced::{alignment, Alignment, Background, Color, Element, Length, Padding, Theme};
 use serde_json::Value;
 use std::rc::Rc;
 
@@ -48,30 +48,38 @@ where
         .iter()
         .map(|child| render_node(child, on_event))
         .collect::<Vec<_>>();
-    let children = apply_justify_content(
+    let (children, fill_main_axis) = apply_justify_content(
         children,
         node.style.layout.flex_direction,
         node.style.layout.justify_content,
     );
 
     let content = match node.style.layout.flex_direction {
-        FlexDirection::Row => row(children)
-            .spacing(node.style.layout.spacing)
-            .padding(to_padding(node.style.layout.padding))
-            .align_items(to_alignment(node.style.layout.align_items))
-            .width(to_length(node.style.layout.width))
-            .height(to_length(node.style.layout.height))
-            .into(),
-        FlexDirection::Column => column(children)
-            .spacing(node.style.layout.spacing)
-            .padding(to_padding(node.style.layout.padding))
-            .align_items(to_alignment(node.style.layout.align_items))
-            .width(to_length(node.style.layout.width))
-            .height(to_length(node.style.layout.height))
-            .into(),
+        FlexDirection::Row => {
+            let mut layout = row(children)
+                .spacing(node.style.layout.spacing)
+                .align_items(to_alignment(node.style.layout.align_items));
+
+            if fill_main_axis {
+                layout = layout.width(Length::Fill);
+            }
+
+            layout.into()
+        }
+        FlexDirection::Column => {
+            let mut layout = column(children)
+                .spacing(node.style.layout.spacing)
+                .align_items(to_alignment(node.style.layout.align_items));
+
+            if fill_main_axis {
+                layout = layout.height(Length::Fill);
+            }
+
+            layout.into()
+        }
     };
 
-    wrap_with_container(content, &node.style, false, false)
+    wrap_view(content, &node.style)
 }
 
 fn render_text<'a, Message>(node: &'a TextNode) -> Element<'a, Message>
@@ -292,36 +300,62 @@ where
     wrapper.into()
 }
 
+fn wrap_view<'a, Message>(content: Element<'a, Message>, style: &Style) -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    let mut wrapper = container(content)
+        .padding(to_padding(style.layout.padding))
+        .width(to_length(style.layout.width))
+        .height(to_length(style.layout.height))
+        .align_x(view_horizontal_alignment(style))
+        .align_y(view_vertical_alignment(style));
+
+    if has_appearance(style) {
+        let style_snapshot = style.clone();
+        wrapper = wrapper.style(move |_theme: &Theme| container::Appearance {
+            text_color: style_snapshot.text.color.map(Color::from),
+            background: style_snapshot
+                .appearance
+                .background_color
+                .map(|color| Background::Color(Color::from(color))),
+            border_radius: style_snapshot.appearance.border_radius.into(),
+            border_width: style_snapshot.appearance.border_width,
+            border_color: style_snapshot
+                .appearance
+                .border_color
+                .map(Color::from)
+                .unwrap_or(Color::TRANSPARENT),
+        });
+    }
+
+    wrapper.into()
+}
+
 fn apply_justify_content<'a, Message>(
     children: Vec<Element<'a, Message>>,
     direction: FlexDirection,
     justify: JustifyContent,
-) -> Vec<Element<'a, Message>>
+) -> (Vec<Element<'a, Message>>, bool)
 where
     Message: Clone + 'a,
 {
     if children.is_empty() {
-        return children;
+        return (children, false);
     }
 
     match justify {
-        JustifyContent::Start => children,
-        JustifyContent::Center => {
-            let mut spaced = Vec::with_capacity(children.len() + 2);
-            spaced.push(fill_space(direction, 1));
-            spaced.extend(children);
-            spaced.push(fill_space(direction, 1));
-            spaced
+        JustifyContent::Start | JustifyContent::Center | JustifyContent::End => (children, false),
+        JustifyContent::SpaceBetween => (
+            intersperse_spaces(children, direction, false, false, 1),
+            true,
+        ),
+        JustifyContent::SpaceAround => {
+            (intersperse_spaces(children, direction, true, true, 1), true)
         }
-        JustifyContent::End => {
-            let mut spaced = Vec::with_capacity(children.len() + 1);
-            spaced.push(fill_space(direction, 1));
-            spaced.extend(children);
-            spaced
+        JustifyContent::SpaceEvenly => {
+            (intersperse_spaces(children, direction, true, true, 2), true)
         }
-        JustifyContent::SpaceBetween => intersperse_spaces(children, direction, false, false, 1),
-        JustifyContent::SpaceAround => intersperse_spaces(children, direction, true, true, 1),
-        JustifyContent::SpaceEvenly => intersperse_spaces(children, direction, true, true, 2),
     }
 }
 
@@ -382,6 +416,58 @@ fn to_alignment(value: AlignItems) -> Alignment {
         AlignItems::Start | AlignItems::Stretch => Alignment::Start,
         AlignItems::Center => Alignment::Center,
         AlignItems::End => Alignment::End,
+    }
+}
+
+fn to_horizontal_alignment(value: AlignItems) -> alignment::Horizontal {
+    match value {
+        AlignItems::Start | AlignItems::Stretch => alignment::Horizontal::Left,
+        AlignItems::Center => alignment::Horizontal::Center,
+        AlignItems::End => alignment::Horizontal::Right,
+    }
+}
+
+fn to_vertical_alignment(value: AlignItems) -> alignment::Vertical {
+    match value {
+        AlignItems::Start | AlignItems::Stretch => alignment::Vertical::Top,
+        AlignItems::Center => alignment::Vertical::Center,
+        AlignItems::End => alignment::Vertical::Bottom,
+    }
+}
+
+fn justify_to_horizontal_alignment(value: JustifyContent) -> alignment::Horizontal {
+    match value {
+        JustifyContent::Start
+        | JustifyContent::SpaceBetween
+        | JustifyContent::SpaceAround
+        | JustifyContent::SpaceEvenly => alignment::Horizontal::Left,
+        JustifyContent::Center => alignment::Horizontal::Center,
+        JustifyContent::End => alignment::Horizontal::Right,
+    }
+}
+
+fn justify_to_vertical_alignment(value: JustifyContent) -> alignment::Vertical {
+    match value {
+        JustifyContent::Start
+        | JustifyContent::SpaceBetween
+        | JustifyContent::SpaceAround
+        | JustifyContent::SpaceEvenly => alignment::Vertical::Top,
+        JustifyContent::Center => alignment::Vertical::Center,
+        JustifyContent::End => alignment::Vertical::Bottom,
+    }
+}
+
+fn view_horizontal_alignment(style: &Style) -> alignment::Horizontal {
+    match style.layout.flex_direction {
+        FlexDirection::Row => justify_to_horizontal_alignment(style.layout.justify_content),
+        FlexDirection::Column => to_horizontal_alignment(style.layout.align_items),
+    }
+}
+
+fn view_vertical_alignment(style: &Style) -> alignment::Vertical {
+    match style.layout.flex_direction {
+        FlexDirection::Row => to_vertical_alignment(style.layout.align_items),
+        FlexDirection::Column => justify_to_vertical_alignment(style.layout.justify_content),
     }
 }
 

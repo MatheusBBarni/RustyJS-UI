@@ -143,6 +143,7 @@ fn native_capture(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::style::{AlignItems, FlexDirection, JustifyContent, SizeValue};
     use crate::vdom::UiNode;
     use serde_json::Value;
 
@@ -253,6 +254,62 @@ App.run({
                 Some(UiNode::Text(text)) => assert_eq!(text.text, "Count is: 1"),
                 other => panic!("expected first child text node, got {other:?}"),
             },
+            other => panic!("expected view tree payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bootstrap_normalizes_web_flex_style_aliases() {
+        let mut runtime = JsRuntime::new().unwrap();
+        let bootstrap = jsengine::bootstrap();
+
+        assert!(runtime
+            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
+            .unwrap()
+            .is_empty());
+
+        let payloads = runtime
+            .eval_script(
+                r#"
+function AppLayout() {
+    return View({
+        style: {
+            flexDirection: 'column',
+            gap: 12,
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+            width: 'fill',
+            height: 'fill'
+        },
+        children: [
+            Text({ text: 'Top' }),
+            Text({ text: 'Bottom' })
+        ]
+    });
+}
+
+App.run({
+    title: 'Flex Alias Test',
+    render: AppLayout
+});
+"#,
+            )
+            .unwrap();
+
+        assert_eq!(payloads.len(), 2);
+
+        match payloads[1].typed_tree().unwrap() {
+            Some(UiNode::View(view)) => {
+                assert_eq!(view.style.layout.flex_direction, FlexDirection::Column);
+                assert_eq!(view.style.layout.spacing, 12.0);
+                assert_eq!(
+                    view.style.layout.justify_content,
+                    JustifyContent::SpaceBetween
+                );
+                assert_eq!(view.style.layout.align_items, AlignItems::End);
+                assert_eq!(view.style.layout.width, SizeValue::Fill);
+                assert_eq!(view.style.layout.height, SizeValue::Fill);
+            }
             other => panic!("expected view tree payload, got {other:?}"),
         }
     }
