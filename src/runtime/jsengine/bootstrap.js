@@ -368,6 +368,7 @@ globalThis.Button = (props) => createNode('Button', props);
 globalThis.TextInput = (props) => createNode('TextInput', props);
 globalThis.SelectInput = (props) => createNode('SelectInput', props);
 globalThis.FlatList = (props) => createFlatList(props);
+globalThis.Modal = (props) => createNode('Modal', props);
 
 globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
     const requestId = PendingFetchRegistryInstance.register({

@@ -1,10 +1,11 @@
 use crate::bridge::EventPayload;
+use crate::modal::{ModalHost, RenderedModal};
 use crate::style::{
     AlignItems, AppearanceStyle, Color as StyleColor, EdgeInsets, FlexDirection, JustifyContent,
     SizeValue, Style,
 };
 use crate::vdom::{
-    ButtonNode, FlatListNode, SelectInputNode, TextInputNode, TextNode, UiNode, ViewNode,
+    ButtonNode, FlatListNode, ModalNode, SelectInputNode, TextInputNode, TextNode, UiNode, ViewNode,
 };
 use iced::theme;
 use iced::widget::scrollable::{Direction, Properties};
@@ -22,7 +23,28 @@ pub fn render_root<'a, Message>(
 where
     Message: Clone + 'a,
 {
-    render_node(node, on_event)
+    let content = match node {
+        UiNode::Modal(_) => empty_fill(),
+        _ => render_node(node, on_event),
+    };
+    let modals = collect_visible_modals(node)
+        .into_iter()
+        .map(|modal| {
+            RenderedModal::new(
+                render_modal(modal, on_event),
+                modal
+                    .on_request_close
+                    .as_ref()
+                    .map(|callback| on_event(EventPayload::new(callback.id.clone(), Value::Null))),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if modals.is_empty() {
+        content
+    } else {
+        ModalHost::new(content, modals).into()
+    }
 }
 
 fn render_node<'a, Message>(
@@ -35,6 +57,7 @@ where
     match node {
         UiNode::View(view) => render_view(view, on_event),
         UiNode::FlatList(flat_list) => render_flat_list(flat_list, on_event),
+        UiNode::Modal(_) => empty_fill(),
         UiNode::Text(text_node) => render_text(text_node),
         UiNode::Button(button_node) => render_button(button_node, on_event),
         UiNode::TextInput(input_node) => render_text_input(input_node, on_event),
@@ -49,51 +72,7 @@ fn render_view<'a, Message>(
 where
     Message: Clone + 'a,
 {
-    let children = node
-        .children
-        .iter()
-        .map(|child| render_node(child, on_event))
-        .collect::<Vec<_>>();
-    let (children, fill_main_axis) = apply_justify_content(
-        children,
-        node.style.layout.flex_direction,
-        node.style.layout.justify_content,
-    );
-
-    let content = match node.style.layout.flex_direction {
-        FlexDirection::Row => {
-            let mut layout = row(children)
-                .spacing(node.style.layout.spacing)
-                .align_items(to_alignment(node.style.layout.align_items));
-
-            if fill_main_axis || has_explicit_size(node.style.layout.width) {
-                layout = layout.width(Length::Fill);
-            }
-
-            if has_explicit_size(node.style.layout.height) {
-                layout = layout.height(Length::Fill);
-            }
-
-            layout.into()
-        }
-        FlexDirection::Column => {
-            let mut layout = column(children)
-                .spacing(node.style.layout.spacing)
-                .align_items(to_alignment(node.style.layout.align_items));
-
-            if has_explicit_size(node.style.layout.width) {
-                layout = layout.width(Length::Fill);
-            }
-
-            if fill_main_axis || has_explicit_size(node.style.layout.height) {
-                layout = layout.height(Length::Fill);
-            }
-
-            layout.into()
-        }
-    };
-
-    wrap_view(content, &node.style)
+    render_flex_children(&node.style, &node.children, on_event)
 }
 
 fn render_flat_list<'a, Message>(
@@ -103,7 +82,11 @@ fn render_flat_list<'a, Message>(
 where
     Message: Clone + 'a,
 {
-    let content = if let Some(child) = node.children.first() {
+    let content = if let Some(child) = node
+        .children
+        .iter()
+        .find(|child| !matches!(child, UiNode::Modal(_)))
+    {
         render_node(child, on_event)
     } else {
         Space::with_width(Length::Shrink).into()
@@ -118,6 +101,119 @@ where
         )));
 
     wrap_with_container(widget.into(), &node.style, true, false)
+}
+
+fn render_modal<'a, Message>(
+    node: &'a ModalNode,
+    on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+) -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    let mut style = node.style.clone();
+    style.layout.width = SizeValue::Fill;
+    style.layout.height = SizeValue::Fill;
+
+    if !node.transparent {
+        style.appearance.background_color = node
+            .backdrop_color
+            .or(style.appearance.background_color)
+            .or(Some(StyleColor::rgb(1.0, 1.0, 1.0)));
+    }
+
+    render_flex_children(&style, &node.children, on_event)
+}
+
+fn render_flex_children<'a, Message>(
+    style: &Style,
+    children: &'a [UiNode],
+    on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+) -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    let children = children
+        .iter()
+        .filter(|child| !matches!(child, UiNode::Modal(_)))
+        .map(|child| render_node(child, on_event))
+        .collect::<Vec<_>>();
+    let (children, fill_main_axis) = apply_justify_content(
+        children,
+        style.layout.flex_direction,
+        style.layout.justify_content,
+    );
+
+    let content = match style.layout.flex_direction {
+        FlexDirection::Row => {
+            let mut layout = row(children)
+                .spacing(style.layout.spacing)
+                .align_items(to_alignment(style.layout.align_items));
+
+            if fill_main_axis || has_explicit_size(style.layout.width) {
+                layout = layout.width(Length::Fill);
+            }
+
+            if has_explicit_size(style.layout.height) {
+                layout = layout.height(Length::Fill);
+            }
+
+            layout.into()
+        }
+        FlexDirection::Column => {
+            let mut layout = column(children)
+                .spacing(style.layout.spacing)
+                .align_items(to_alignment(style.layout.align_items));
+
+            if has_explicit_size(style.layout.width) {
+                layout = layout.width(Length::Fill);
+            }
+
+            if fill_main_axis || has_explicit_size(style.layout.height) {
+                layout = layout.height(Length::Fill);
+            }
+
+            layout.into()
+        }
+    };
+
+    wrap_view(content, style)
+}
+
+fn collect_visible_modals<'a>(node: &'a UiNode) -> Vec<&'a ModalNode> {
+    let mut modals = Vec::new();
+    collect_visible_modals_into(node, &mut modals);
+    modals
+}
+
+fn collect_visible_modals_into<'a>(node: &'a UiNode, modals: &mut Vec<&'a ModalNode>) {
+    match node {
+        UiNode::Modal(modal) => {
+            if !modal.visible {
+                return;
+            }
+
+            modals.push(modal);
+
+            for child in &modal.children {
+                collect_visible_modals_into(child, modals);
+            }
+        }
+        _ => {
+            for child in node.children() {
+                collect_visible_modals_into(child, modals);
+            }
+        }
+    }
+}
+
+fn empty_fill<'a, Message>() -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    container(Space::with_width(Length::Shrink))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }
 
 fn render_text<'a, Message>(node: &'a TextNode) -> Element<'a, Message>
