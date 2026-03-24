@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context as AnyhowContext, Result};
 use iced::executor;
 use iced::widget::text;
 use iced::{Application, Command, Element, Settings, Theme};
@@ -6,9 +6,11 @@ use rustyjs_ui::bridge::{BridgePayload, EventPayload, WindowConfig};
 use rustyjs_ui::runtime::JsRuntime;
 use rustyjs_ui::ui;
 use rustyjs_ui::vdom::UiNode;
+use std::path::{Path, PathBuf};
 
 fn main() -> iced::Result {
-    let flags = bootstrap_flags().map_err(|error| {
+    let script_path = application_script_path();
+    let flags = bootstrap_flags(script_path.as_deref()).map_err(|error| {
         iced::Error::WindowCreationFailed(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
             error.to_string(),
@@ -23,8 +25,19 @@ fn main() -> iced::Result {
     RustyJsApp::run(settings)
 }
 
-fn bootstrap_flags() -> Result<AppFlags> {
-    let (runtime, payloads) = JsRuntime::startup()?;
+fn application_script_path() -> Option<PathBuf> {
+    std::env::args_os().nth(1).map(PathBuf::from)
+}
+
+fn bootstrap_flags(script_path: Option<&Path>) -> Result<AppFlags> {
+    let (runtime, payloads) = match script_path {
+        Some(path) => {
+            let source = std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read app script: {}", path.display()))?;
+            JsRuntime::startup_with_app_source(&source)?
+        }
+        None => JsRuntime::startup()?,
+    };
     let mut window = WindowConfig::default();
     let mut tree = None;
 

@@ -40,9 +40,16 @@ impl JsRuntime {
     ///
     /// Returns the runtime plus the payloads produced during initialization.
     pub fn startup() -> Result<(Self, Vec<BridgePayload>)> {
+        Self::startup_with_app_source(scripts::counter_app())
+    }
+
+    /// Boots the embedded runtime and loads the provided app source.
+    ///
+    /// Returns the runtime plus the payloads produced during initialization.
+    pub fn startup_with_app_source(app_source: &str) -> Result<(Self, Vec<BridgePayload>)> {
         let mut runtime = Self::new()?;
         let mut initial_payloads = runtime.eval_script(scripts::bootstrap())?;
-        initial_payloads.extend(runtime.eval_script(scripts::counter_app())?);
+        initial_payloads.extend(runtime.eval_script(app_source)?);
         Ok((runtime, initial_payloads))
     }
 

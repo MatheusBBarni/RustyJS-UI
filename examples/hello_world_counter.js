@@ -42,7 +42,7 @@ function AppLayout() {
 }
 
 App.run({
-    title: 'Hello World Test',
+    title: 'Hello World Example',
     windowSize: { width: 480, height: 320 },
     render: AppLayout
 });

@@ -3,7 +3,7 @@ use rustyjs_ui::runtime::JsRuntime;
 use rustyjs_ui::vdom::{ButtonNode, TextNode, UiNode};
 use serde_json::Value;
 
-const HELLO_WORLD_APP: &str = include_str!("hello_world_counter.js");
+const HELLO_WORLD_APP: &str = include_str!("../examples/hello_world_counter.js");
 
 #[test]
 fn hello_world_fixture_renders_expected_vdom() {
@@ -17,7 +17,7 @@ fn hello_world_fixture_renders_expected_vdom() {
             title,
             width: 480,
             height: 320
-        } if title == "Hello World Test"
+        } if title == "Hello World Example"
     ));
 
     let tree = payloads[1].typed_tree().unwrap().unwrap();

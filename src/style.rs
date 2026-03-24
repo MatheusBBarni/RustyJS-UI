@@ -257,7 +257,7 @@ pub struct TextStyle {
         deserialize_with = "deserialize_option_color"
     )]
     pub color: Option<Color>,
-    #[serde(default, alias = "fontSize")]
+    #[serde(default = "TextStyle::default_font_size", alias = "fontSize")]
     pub font_size: f32,
     #[serde(default, alias = "fontWeight")]
     pub font_weight: FontWeight,
@@ -267,9 +267,15 @@ impl Default for TextStyle {
     fn default() -> Self {
         Self {
             color: None,
-            font_size: 16.0,
+            font_size: Self::default_font_size(),
             font_weight: FontWeight::default(),
         }
+    }
+}
+
+impl TextStyle {
+    pub const fn default_font_size() -> f32 {
+        16.0
     }
 }
 
@@ -500,5 +506,34 @@ impl fmt::Display for Color {
             "rgba({:.3}, {:.3}, {:.3}, {:.3})",
             self.red, self.green, self.blue, self.alpha
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn style_defaults_font_size_when_text_style_field_is_missing() {
+        let style = Style::parse(&json!({
+            "padding": 10,
+            "backgroundColor": "#007AFF",
+            "borderRadius": 8
+        }))
+        .unwrap();
+
+        assert_eq!(style.text.font_size, TextStyle::default_font_size());
+    }
+
+    #[test]
+    fn style_keeps_explicit_font_size() {
+        let style = Style::parse(&json!({
+            "fontSize": 28,
+            "color": "#111111"
+        }))
+        .unwrap();
+
+        assert_eq!(style.text.font_size, 28.0);
     }
 }
