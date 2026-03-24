@@ -1,0 +1,57 @@
+#[derive(Clone, Copy, Debug)]
+pub struct ScriptAsset {
+    pub path: &'static str,
+    pub source: &'static str,
+}
+
+const BOOTSTRAP: ScriptAsset = ScriptAsset {
+    path: concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/runtime/jsengine/bootstrap.js"
+    ),
+    source: include_str!("bootstrap.js"),
+};
+
+const COUNTER_APP: ScriptAsset = ScriptAsset {
+    path: concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/runtime/jsengine/counter_app.js"
+    ),
+    source: include_str!("counter_app.js"),
+};
+
+pub const fn bootstrap() -> ScriptAsset {
+    BOOTSTRAP
+}
+
+pub const fn counter_app() -> ScriptAsset {
+    COUNTER_APP
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bootstrap_uses_string_callback_ids() {
+        let source = bootstrap().source;
+        assert!(source.contains("return id;"));
+        assert!(!source.contains("return { id };"));
+    }
+
+    #[test]
+    fn bootstrap_defends_pending_state_on_render_errors() {
+        let source = bootstrap().source;
+        assert!(source.contains("finally {"));
+        assert!(source.contains("this.isRenderPending = false;"));
+    }
+
+    #[test]
+    fn bundled_sample_app_matches_prd_shape() {
+        let source = counter_app().source;
+        assert!(source.contains("function AppLayout()"));
+        assert!(source.contains("App.requestRender();"));
+        assert!(source.contains("Button({"));
+        assert!(source.contains("Text({"));
+    }
+}

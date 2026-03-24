@@ -1,4 +1,4 @@
-mod scripts;
+mod jsengine;
 
 use crate::bridge::BridgePayload;
 use anyhow::{anyhow, Context as AnyhowContext, Result};
@@ -6,6 +6,7 @@ use boa_engine::{Context as BoaContext, JsValue, NativeFunction, Source};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::path::Path;
 
 thread_local! {
     static OUTBOUND_QUEUE: RefCell<VecDeque<String>> = const { RefCell::new(VecDeque::new()) };
@@ -13,9 +14,9 @@ thread_local! {
 
 /// Boa runtime host for the RustyJS-UI bridge.
 ///
-/// The runtime evaluates an embedded bootstrap script that exposes the JS-side
-/// helpers (`App`, `View`, `Text`, `Button`, `TextInput`, and
-/// `__SEND_TO_RUST__`) plus a sample counter app used for the MVP.
+/// The runtime evaluates bundled JS files that expose the JS-side helpers
+/// (`App`, `View`, `Text`, `Button`, `TextInput`, and `__SEND_TO_RUST__`)
+/// plus a sample counter app used for the MVP.
 #[derive(Debug)]
 pub struct JsRuntime {
     context: BoaContext<'static>,
@@ -36,11 +37,18 @@ impl JsRuntime {
         Ok(Self { context })
     }
 
-    /// Boots the embedded runtime and loads the bundled counter app.
+    /// Boots the bundled runtime scripts and loads the sample counter app.
     ///
     /// Returns the runtime plus the payloads produced during initialization.
     pub fn startup() -> Result<(Self, Vec<BridgePayload>)> {
-        Self::startup_with_app_source(scripts::counter_app())
+        let bootstrap = jsengine::bootstrap();
+        let sample_app = jsengine::counter_app();
+        let mut runtime = Self::new()?;
+        let mut initial_payloads =
+            runtime.eval_script_with_path(bootstrap.source, Some(bootstrap.path))?;
+        initial_payloads
+            .extend(runtime.eval_script_with_path(sample_app.source, Some(sample_app.path))?);
+        Ok((runtime, initial_payloads))
     }
 
     /// Boots the embedded runtime and loads the provided app source.
@@ -48,15 +56,28 @@ impl JsRuntime {
     /// Returns the runtime plus the payloads produced during initialization.
     pub fn startup_with_app_source(app_source: &str) -> Result<(Self, Vec<BridgePayload>)> {
         let mut runtime = Self::new()?;
-        let mut initial_payloads = runtime.eval_script(scripts::bootstrap())?;
+        let bootstrap = jsengine::bootstrap();
+        let mut initial_payloads =
+            runtime.eval_script_with_path(bootstrap.source, Some(bootstrap.path))?;
         initial_payloads.extend(runtime.eval_script(app_source)?);
         Ok((runtime, initial_payloads))
     }
 
     /// Evaluates additional JS source and returns any payloads emitted by it.
     pub fn eval_script(&mut self, source: &str) -> Result<Vec<BridgePayload>> {
+        self.eval_script_with_path(source, None)
+    }
+
+    fn eval_script_with_path(
+        &mut self,
+        source: &str,
+        source_path: Option<&str>,
+    ) -> Result<Vec<BridgePayload>> {
         self.context
-            .eval(Source::from_bytes(source))
+            .eval(Source::from_reader(
+                source.as_bytes(),
+                source_path.map(Path::new),
+            ))
             .map_err(|err| anyhow!("failed to evaluate JS source: {err}"))?;
         self.context.run_jobs();
         self.drain_payloads()
@@ -93,14 +114,14 @@ impl JsRuntime {
         self.drain_payloads()
     }
 
-    /// Returns the embedded bootstrap script.
+    /// Returns the bundled bootstrap script.
     pub fn bootstrap_source() -> &'static str {
-        scripts::bootstrap()
+        jsengine::bootstrap().source
     }
 
     /// Returns the bundled sample counter app.
     pub fn sample_counter_app_source() -> &'static str {
-        scripts::counter_app()
+        jsengine::counter_app().source
     }
 }
 
@@ -128,8 +149,12 @@ mod tests {
     #[test]
     fn eval_script_emits_prd_style_bridge_payloads() {
         let mut runtime = JsRuntime::new().unwrap();
+        let bootstrap = jsengine::bootstrap();
 
-        assert!(runtime.eval_script(scripts::bootstrap()).unwrap().is_empty());
+        assert!(runtime
+            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
+            .unwrap()
+            .is_empty());
 
         let payloads = runtime
             .eval_script(
@@ -171,7 +196,13 @@ App.run({
         match payloads[1].typed_tree().unwrap() {
             Some(UiNode::Button(button)) => {
                 assert_eq!(button.text, "Count is: 0");
-                assert_eq!(button.on_click.as_ref().map(|callback| callback.id.as_str()), Some("cb_1"));
+                assert_eq!(
+                    button
+                        .on_click
+                        .as_ref()
+                        .map(|callback| callback.id.as_str()),
+                    Some("cb_1")
+                );
             }
             other => panic!("expected button tree payload, got {other:?}"),
         }
@@ -180,8 +211,12 @@ App.run({
     #[test]
     fn trigger_callback_re_renders_with_updated_vdom() {
         let mut runtime = JsRuntime::new().unwrap();
+        let bootstrap = jsengine::bootstrap();
 
-        assert!(runtime.eval_script(scripts::bootstrap()).unwrap().is_empty());
+        assert!(runtime
+            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
+            .unwrap()
+            .is_empty());
         runtime
             .eval_script(
                 r#"
