@@ -68,6 +68,14 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_exposes_router_helper() {
+        let source = bootstrap().source;
+        assert!(source.contains("class AppRouter"));
+        assert!(source.contains("createRouter(config = {})"));
+        assert!(source.contains("getPath()"));
+    }
+
+    #[test]
     fn bundled_sample_app_matches_prd_shape() {
         let source = counter_app().source;
         assert!(source.contains("function AppLayout()"));

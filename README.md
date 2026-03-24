@@ -22,6 +22,7 @@ The current implementation includes:
 - Native ESM support for local multi-file `.js` apps
 - A VDOM-style bridge between JavaScript and Rust
 - Native rendering through `iced`
+- JS-first path routing with in-memory history via `App.createRouter`
 - Basic components:
   - `View`
   - `Text`
@@ -57,6 +58,7 @@ Available examples:
 - [examples/task_form_flat_list.js](examples/task_form_flat_list.js): simple task form that adds, completes, and deletes items inside a FlatList
 - [examples/modal.js](examples/modal.js): opens a native modal overlay and dismisses it with buttons or `Escape`
 - [examples/multi_file_save_button/main.js](examples/multi_file_save_button/main.js): imports a reusable `SaveButton` component from a sibling module
+- [examples/router_demo/main.js](examples/router_demo/main.js): multi-file route demo with path params, query parsing, and programmatic navigation
 - [examples/pokemon_fetch.js](examples/pokemon_fetch.js): fetches Pokemon details from PokeAPI using the new async `fetch` bridge
 
 Run any example directly:
@@ -107,6 +109,12 @@ Or run the multi-file example:
 cargo run -- examples/multi_file_save_button/main.js
 ```
 
+Or try the router example:
+
+```sh
+cargo run -- examples/router_demo/main.js
+```
+
 ## Multi-file ESM Apps
 
 When you pass a file path to `cargo run -- <entry-file>`, RustyJS-UI now treats that file as an ECMAScript module entrypoint. Local component files can use standard static imports and exports without a bundler.
@@ -130,6 +138,68 @@ Current module-loading rules:
 - Import specifiers must include the `.js` extension
 - Imports are resolved relative to the importing file and must stay inside the entry file's root directory
 - Existing single-file apps still work unchanged
+
+## Routing API
+
+RustyJS-UI includes a JS-side router helper for path-based navigation inside a native app. The router is created in JavaScript and drives the normal `App.requestRender()` loop, so it fits the current runtime without changing the Rust bridge.
+
+Supported behavior:
+
+- `initialPath` sets the first active route
+- `routes` defines the route table in first-match order
+- `:param` segments are extracted into `route.params`
+- query strings are exposed as `route.query`
+- `navigate`, `replace`, `back`, and `forward` update the in-memory history stack and re-render
+- `router.getPath()` returns the current normalized path
+
+Example:
+
+```js
+function HomeScreen(route) {
+  return View({
+    children: [
+      Text({ text: `Path: ${route.path}` }),
+      Button({ text: 'Open project', onClick: () => route.navigate('/projects/alpha?tab=overview') })
+    ]
+  });
+}
+
+function ProjectScreen(route) {
+  return View({
+    children: [
+      Text({ text: `Project: ${route.params.projectId}` }),
+      Text({ text: `Tab: ${route.query.tab || 'none'}` }),
+      Button({ text: 'Back home', onClick: () => route.navigate('/') })
+    ]
+  });
+}
+
+const router = App.createRouter({
+  initialPath: '/',
+  routes: [
+    { path: '/', render: HomeScreen },
+    { path: '/projects/:projectId', render: ProjectScreen }
+  ],
+  notFound: (route) =>
+    View({
+      children: [
+        Text({ text: `No route matched ${route.path}` }),
+        Button({ text: 'Home', onClick: () => route.navigate('/') })
+      ]
+    })
+});
+
+App.run({
+  title: 'Router Demo',
+  render: () =>
+    View({
+      children: [
+        Text({ text: `Current path: ${router.getPath()}` }),
+        router.render()
+      ]
+    })
+});
+```
 
 ## Running Tests
 
