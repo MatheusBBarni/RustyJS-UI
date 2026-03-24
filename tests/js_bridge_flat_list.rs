@@ -101,16 +101,17 @@ fn find_button<'a>(node: &'a UiNode, label: &str) -> Option<&'a ButtonNode> {
         UiNode::Button(button) if button.text == label => Some(button),
         UiNode::Button(_) => None,
         UiNode::Text(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => None,
-        _ => node.children().iter().find_map(|child| find_button(child, label)),
+        _ => node
+            .children()
+            .iter()
+            .find_map(|child| find_button(child, label)),
     }
 }
 
 fn find_flat_list(node: &UiNode) -> Option<&FlatListNode> {
     match node {
         UiNode::FlatList(list) => Some(list),
-        UiNode::Text(_) | UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {
-            None
-        }
+        UiNode::Text(_) | UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => None,
         _ => node.children().iter().find_map(find_flat_list),
     }
 }

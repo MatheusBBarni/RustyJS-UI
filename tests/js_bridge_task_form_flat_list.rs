@@ -66,7 +66,9 @@ fn task_form_flat_list_add_task_re_renders_example() {
         .id
         .clone();
 
-    let payloads = runtime.trigger_callback(&add_callback, Value::Null).unwrap();
+    let payloads = runtime
+        .trigger_callback(&add_callback, Value::Null)
+        .unwrap();
     let added_tree = payloads[0].typed_tree().unwrap().unwrap();
     let texts = collect_texts(&added_tree);
     let input = find_text_input(&added_tree, "Task name").expect("expected task name input");
@@ -91,7 +93,9 @@ fn task_form_flat_list_complete_and_delete_re_render_example() {
         .id
         .clone();
 
-    let payloads = runtime.trigger_callback(&complete_callback, Value::Null).unwrap();
+    let payloads = runtime
+        .trigger_callback(&complete_callback, Value::Null)
+        .unwrap();
     let toggled_tree = payloads[0].typed_tree().unwrap().unwrap();
     let delete_callback = find_button(&toggled_tree, "Delete 2")
         .and_then(|button| button.on_click.as_ref())
@@ -101,7 +105,9 @@ fn task_form_flat_list_complete_and_delete_re_render_example() {
 
     assert!(find_button(&toggled_tree, "Undo 1").is_some());
 
-    let payloads = runtime.trigger_callback(&delete_callback, Value::Null).unwrap();
+    let payloads = runtime
+        .trigger_callback(&delete_callback, Value::Null)
+        .unwrap();
     let deleted_tree = payloads[0].typed_tree().unwrap().unwrap();
     let texts = collect_texts(&deleted_tree);
 
@@ -159,16 +165,17 @@ fn find_button<'a>(node: &'a UiNode, label: &str) -> Option<&'a ButtonNode> {
         UiNode::Button(button) if button.text == label => Some(button),
         UiNode::Button(_) => None,
         UiNode::Text(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => None,
-        _ => node.children().iter().find_map(|child| find_button(child, label)),
+        _ => node
+            .children()
+            .iter()
+            .find_map(|child| find_button(child, label)),
     }
 }
 
 fn find_flat_list(node: &UiNode) -> Option<&FlatListNode> {
     match node {
         UiNode::FlatList(list) => Some(list),
-        UiNode::Text(_) | UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {
-            None
-        }
+        UiNode::Text(_) | UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => None,
         _ => node.children().iter().find_map(find_flat_list),
     }
 }

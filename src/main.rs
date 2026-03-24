@@ -1,12 +1,13 @@
 use anyhow::{Context as AnyhowContext, Result};
 use iced::executor;
 use iced::widget::text;
-use iced::{Application, Command, Element, Settings, Theme};
+use iced::{time, Application, Command, Element, Settings, Subscription, Theme};
 use rustyjs_ui::bridge::{BridgePayload, EventPayload, WindowConfig};
 use rustyjs_ui::runtime::JsRuntime;
 use rustyjs_ui::ui;
 use rustyjs_ui::vdom::UiNode;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 fn main() -> iced::Result {
     let script_path = application_script_path();
@@ -70,6 +71,7 @@ struct RustyJsApp {
 #[derive(Debug, Clone)]
 enum Message {
     UiEvent(EventPayload),
+    AsyncTick,
 }
 
 impl Application for RustyJsApp {
@@ -102,15 +104,23 @@ impl Application for RustyJsApp {
             {
                 Ok(payloads) => {
                     self.error = None;
-
-                    for payload in payloads {
-                        if let Err(error) = apply_payload(&mut self.window, &mut self.tree, payload)
-                        {
-                            self.error = Some(error.to_string());
-                            break;
-                        }
+                    if let Err(error) = apply_payloads(&mut self.window, &mut self.tree, payloads) {
+                        self.error = Some(error.to_string());
                     }
                 }
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                }
+            },
+            Message::AsyncTick => match self.runtime.poll_async() {
+                Ok(payloads) if !payloads.is_empty() => {
+                    if let Err(error) = apply_payloads(&mut self.window, &mut self.tree, payloads) {
+                        self.error = Some(error.to_string());
+                    } else {
+                        self.error = None;
+                    }
+                }
+                Ok(_) => {}
                 Err(error) => {
                     self.error = Some(error.to_string());
                 }
@@ -118,6 +128,14 @@ impl Application for RustyJsApp {
         }
 
         Command::none()
+    }
+
+    fn subscription(&self) -> Subscription<Self::Message> {
+        if self.runtime.has_pending_fetches() {
+            return time::every(Duration::from_millis(16)).map(|_| Message::AsyncTick);
+        }
+
+        Subscription::none()
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
@@ -155,6 +173,18 @@ fn apply_payload(
         BridgePayload::UpdateVdom { tree: wire_tree } => {
             *tree = Some(UiNode::try_from(wire_tree)?);
         }
+    }
+
+    Ok(())
+}
+
+fn apply_payloads(
+    window: &mut WindowConfig,
+    tree: &mut Option<UiNode>,
+    payloads: Vec<BridgePayload>,
+) -> Result<()> {
+    for payload in payloads {
+        apply_payload(window, tree, payload)?;
     }
 
     Ok(())

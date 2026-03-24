@@ -55,6 +55,19 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_exposes_fetch_bridge_contract() {
+        let source = bootstrap().source;
+        assert!(source.contains("globalThis.fetch = (url, options = {}) => new Promise("));
+        assert!(source.contains("action: 'FETCH_REQUEST'"));
+        assert!(source.contains("requestId"));
+        assert!(source.contains("resolveFetch"));
+        assert!(source.contains("rejectFetch"));
+        assert!(source.contains("method"));
+        assert!(source.contains("headers"));
+        assert!(source.contains("body"));
+    }
+
+    #[test]
     fn bundled_sample_app_matches_prd_shape() {
         let source = counter_app().source;
         assert!(source.contains("function AppLayout()"));

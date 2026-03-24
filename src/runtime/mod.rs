@@ -1,12 +1,16 @@
+mod fetch;
 mod jsengine;
 
 use crate::bridge::BridgePayload;
 use anyhow::{anyhow, Context as AnyhowContext, Result};
 use boa_engine::{Context as BoaContext, JsValue, NativeFunction, Source};
+use fetch::{FetchCompletion, FetchMethod, FetchRequest, FetchTransport};
+use serde::Deserialize;
 use serde_json::Value;
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
+use std::time::Duration;
 
 thread_local! {
     static OUTBOUND_QUEUE: RefCell<VecDeque<String>> = const { RefCell::new(VecDeque::new()) };
@@ -20,12 +24,15 @@ thread_local! {
 #[derive(Debug)]
 pub struct JsRuntime {
     context: BoaContext<'static>,
+    fetch_transport: FetchTransport,
+    pending_fetches: HashMap<u64, String>,
 }
 
 impl JsRuntime {
     /// Creates a new Boa context and installs the host bridge helpers.
     pub fn new() -> Result<Self> {
         let mut context = BoaContext::default();
+        let fetch_transport = FetchTransport::new()?;
         context
             .register_global_callable(
                 "__RUSTYJS_NATIVE_CAPTURE__",
@@ -34,7 +41,11 @@ impl JsRuntime {
             )
             .map_err(|err| anyhow!("failed to register native capture callback: {err}"))?;
 
-        Ok(Self { context })
+        Ok(Self {
+            context,
+            fetch_transport,
+            pending_fetches: HashMap::new(),
+        })
     }
 
     /// Boots the bundled runtime scripts and loads the sample counter app.
@@ -84,16 +95,28 @@ impl JsRuntime {
     }
 
     /// Drains outbound bridge payloads that the JS runtime queued.
+    ///
+    /// Fetch requests are intercepted and dispatched to the async transport.
     pub fn drain_payloads(&mut self) -> Result<Vec<BridgePayload>> {
-        let pending = OUTBOUND_QUEUE.with(|queue| queue.borrow_mut().drain(..).collect::<Vec<_>>());
+        let mut payloads = Vec::new();
 
-        pending
-            .into_iter()
-            .map(|payload| {
-                BridgePayload::parse_str(&payload)
-                    .with_context(|| format!("failed to parse bridge payload: {payload}"))
-            })
-            .collect()
+        loop {
+            let pending = take_outbound_messages();
+            if pending.is_empty() {
+                break;
+            }
+
+            for message in pending {
+                match parse_outbound_message(&message)? {
+                    OutboundMessage::Payload(payload) => payloads.push(payload),
+                    OutboundMessage::FetchRequest(request) => {
+                        self.submit_fetch_request(request)?;
+                    }
+                }
+            }
+        }
+
+        Ok(payloads)
     }
 
     /// Triggers a registered JS callback and returns any payloads emitted by it.
@@ -114,6 +137,41 @@ impl JsRuntime {
         self.drain_payloads()
     }
 
+    /// Polls for completed async fetch requests and resolves any pending JS promises.
+    pub fn poll_async(&mut self) -> Result<Vec<BridgePayload>> {
+        if self.pending_fetches.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut payloads = Vec::new();
+
+        for completion in self.fetch_transport.drain_completions() {
+            let Some(request_id) = self.pending_fetches.remove(&completion.request_id()) else {
+                continue;
+            };
+
+            match completion {
+                FetchCompletion::Response(response) if (200..400).contains(&response.status) => {
+                    self.resolve_fetch(&request_id, &response.body)?;
+                }
+                FetchCompletion::Response(response) => {
+                    self.reject_fetch(&request_id, &format!("HTTP {}", response.status_text))?;
+                }
+                FetchCompletion::Error(error) => {
+                    self.reject_fetch(&request_id, &error.message)?;
+                }
+            }
+
+            payloads.extend(self.drain_payloads()?);
+        }
+
+        Ok(payloads)
+    }
+
+    pub fn has_pending_fetches(&self) -> bool {
+        !self.pending_fetches.is_empty()
+    }
+
     /// Returns the bundled bootstrap script.
     pub fn bootstrap_source() -> &'static str {
         jsengine::bootstrap().source
@@ -123,6 +181,125 @@ impl JsRuntime {
     pub fn sample_counter_app_source() -> &'static str {
         jsengine::counter_app().source
     }
+
+    fn submit_fetch_request(&mut self, request: OutboundFetchRequest) -> Result<()> {
+        let request_id = request.request_id.clone();
+        let transport_request = request
+            .to_transport_request()
+            .with_context(|| format!("failed to prepare fetch request: {request_id}"));
+
+        match transport_request {
+            Ok(transport_request) => match self.fetch_transport.submit(transport_request) {
+                Ok(internal_id) => {
+                    self.pending_fetches.insert(internal_id, request_id);
+                }
+                Err(error) => {
+                    self.reject_fetch(&request_id, &error.to_string())?;
+                }
+            },
+            Err(error) => {
+                self.reject_fetch(&request_id, &error.to_string())?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn resolve_fetch(&mut self, request_id: &str, body: &str) -> Result<()> {
+        let request_id =
+            serde_json::to_string(request_id).context("failed to encode fetch request id")?;
+        let body = serde_json::to_string(body).context("failed to encode fetch body")?;
+        let script = format!("globalThis.RustBridge.resolveFetch({request_id}, {body});");
+        self.context
+            .eval(Source::from_bytes(script.as_str()))
+            .map_err(|err| anyhow!("failed to resolve fetch promise: {err}"))?;
+        self.context.run_jobs();
+        Ok(())
+    }
+
+    fn reject_fetch(&mut self, request_id: &str, message: &str) -> Result<()> {
+        let request_id =
+            serde_json::to_string(request_id).context("failed to encode fetch request id")?;
+        let message = serde_json::to_string(message).context("failed to encode fetch error")?;
+        let script = format!("globalThis.RustBridge.rejectFetch({request_id}, {message});");
+        self.context
+            .eval(Source::from_bytes(script.as_str()))
+            .map_err(|err| anyhow!("failed to reject fetch promise: {err}"))?;
+        self.context.run_jobs();
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+enum OutboundMessage {
+    Payload(BridgePayload),
+    FetchRequest(OutboundFetchRequest),
+}
+
+#[derive(Debug, Deserialize)]
+struct OutboundFetchRequest {
+    #[serde(rename = "requestId")]
+    request_id: String,
+    url: String,
+    #[serde(default = "default_fetch_method")]
+    method: String,
+    #[serde(default)]
+    headers: BTreeMap<String, String>,
+    #[serde(default)]
+    body: Option<String>,
+}
+
+impl OutboundFetchRequest {
+    fn to_transport_request(&self) -> Result<FetchRequest> {
+        let method = match self.method.trim().to_ascii_uppercase().as_str() {
+            "GET" => FetchMethod::Get,
+            "POST" => FetchMethod::Post,
+            "PUT" => FetchMethod::Put,
+            "DELETE" => FetchMethod::Delete,
+            other => return Err(anyhow!("unsupported fetch method: {other}")),
+        };
+
+        let mut request = FetchRequest::new(self.url.clone())
+            .with_method(method)
+            .with_timeout(Duration::from_secs(30));
+
+        for (name, value) in &self.headers {
+            request = request.with_header(name.clone(), value.clone());
+        }
+
+        if let Some(body) = &self.body {
+            request = request.with_body(body.clone());
+        }
+
+        Ok(request)
+    }
+}
+
+fn default_fetch_method() -> String {
+    "GET".to_string()
+}
+
+fn take_outbound_messages() -> Vec<String> {
+    OUTBOUND_QUEUE.with(|queue| queue.borrow_mut().drain(..).collect::<Vec<_>>())
+}
+
+fn parse_outbound_message(input: &str) -> Result<OutboundMessage> {
+    let value: Value = serde_json::from_str(input)
+        .with_context(|| format!("failed to parse outbound bridge message: {input}"))?;
+    let action = value
+        .get("action")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("outbound bridge message missing action: {input}"))?;
+
+    if action == "FETCH_REQUEST" {
+        return serde_json::from_value(value)
+            .map(OutboundMessage::FetchRequest)
+            .with_context(|| format!("failed to parse fetch request payload: {input}"));
+    }
+
+    BridgePayload::parse_json(value)
+        .map(OutboundMessage::Payload)
+        .with_context(|| format!("failed to parse bridge payload: {input}"))
 }
 
 fn native_capture(
