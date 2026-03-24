@@ -1,4 +1,4 @@
-use anyhow::{Context as AnyhowContext, Result};
+use anyhow::Result;
 use iced::executor;
 use iced::widget::text;
 use iced::{time, Application, Command, Element, Settings, Subscription, Theme};
@@ -32,11 +32,7 @@ fn application_script_path() -> Option<PathBuf> {
 
 fn bootstrap_flags(script_path: Option<&Path>) -> Result<AppFlags> {
     let (runtime, payloads) = match script_path {
-        Some(path) => {
-            let source = std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read app script: {}", path.display()))?;
-            JsRuntime::startup_with_app_source(&source)?
-        }
+        Some(path) => JsRuntime::startup_with_app_entry(path)?,
         None => JsRuntime::startup()?,
     };
     let mut window = WindowConfig::default();

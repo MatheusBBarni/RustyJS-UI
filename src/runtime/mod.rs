@@ -1,15 +1,22 @@
 mod fetch;
 mod jsengine;
+mod modules;
 
 use crate::bridge::BridgePayload;
 use anyhow::{anyhow, Context as AnyhowContext, Result};
-use boa_engine::{Context as BoaContext, JsValue, NativeFunction, Source};
+use boa_engine::{
+    builtins::promise::PromiseState,
+    module::{Module, ModuleLoader},
+    Context as BoaContext, JsValue, NativeFunction, Source,
+};
 use fetch::{FetchCompletion, FetchMethod, FetchRequest, FetchTransport};
+use modules::AppModuleLoader;
 use serde::Deserialize;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
+use std::rc::Rc;
 use std::time::Duration;
 
 thread_local! {
@@ -24,6 +31,7 @@ thread_local! {
 #[derive(Debug)]
 pub struct JsRuntime {
     context: BoaContext<'static>,
+    module_loader: Rc<AppModuleLoader>,
     fetch_transport: FetchTransport,
     pending_fetches: HashMap<u64, String>,
 }
@@ -31,7 +39,12 @@ pub struct JsRuntime {
 impl JsRuntime {
     /// Creates a new Boa context and installs the host bridge helpers.
     pub fn new() -> Result<Self> {
-        let mut context = BoaContext::default();
+        let module_loader = Rc::new(AppModuleLoader::new());
+        let loader: Rc<dyn ModuleLoader> = module_loader.clone();
+        let mut context = BoaContext::builder()
+            .module_loader(loader)
+            .build()
+            .map_err(|err| anyhow!("failed to build JS runtime context: {err}"))?;
         let fetch_transport = FetchTransport::new()?;
         context
             .register_global_callable(
@@ -43,6 +56,7 @@ impl JsRuntime {
 
         Ok(Self {
             context,
+            module_loader,
             fetch_transport,
             pending_fetches: HashMap::new(),
         })
@@ -74,9 +88,29 @@ impl JsRuntime {
         Ok((runtime, initial_payloads))
     }
 
+    /// Boots the embedded runtime and loads the provided app entry as an ECMAScript module.
+    ///
+    /// Returns the runtime plus the payloads produced during initialization.
+    pub fn startup_with_app_entry(entry_path: &Path) -> Result<(Self, Vec<BridgePayload>)> {
+        let mut runtime = Self::new()?;
+        let bootstrap = jsengine::bootstrap();
+        let mut initial_payloads =
+            runtime.eval_script_with_path(bootstrap.source, Some(bootstrap.path))?;
+        initial_payloads.extend(runtime.eval_module_entry(entry_path)?);
+        Ok((runtime, initial_payloads))
+    }
+
     /// Evaluates additional JS source and returns any payloads emitted by it.
     pub fn eval_script(&mut self, source: &str) -> Result<Vec<BridgePayload>> {
         self.eval_script_with_path(source, None)
+    }
+
+    /// Evaluates an app entry file as an ECMAScript module and returns any emitted payloads.
+    pub fn eval_module_entry(&mut self, entry_path: &Path) -> Result<Vec<BridgePayload>> {
+        let (canonical_entry, module) = self
+            .module_loader
+            .prepare_entry_module(entry_path, &mut self.context)?;
+        self.eval_module(canonical_entry.as_path(), &module)
     }
 
     fn eval_script_with_path(
@@ -92,6 +126,31 @@ impl JsRuntime {
             .map_err(|err| anyhow!("failed to evaluate JS source: {err}"))?;
         self.context.run_jobs();
         self.drain_payloads()
+    }
+
+    fn eval_module(&mut self, entry_path: &Path, module: &Module) -> Result<Vec<BridgePayload>> {
+        let promise = module
+            .load_link_evaluate(&mut self.context)
+            .map_err(|err| anyhow!("failed to load JS module `{}`: {err}", entry_path.display()))?;
+        self.context.run_jobs();
+
+        match promise.state().map_err(|err| {
+            anyhow!(
+                "failed to inspect JS module `{}`: {err}",
+                entry_path.display()
+            )
+        })? {
+            PromiseState::Fulfilled(_) => self.drain_payloads(),
+            PromiseState::Rejected(reason) => Err(anyhow!(
+                "failed to evaluate JS module `{}`: {}",
+                entry_path.display(),
+                reason.display()
+            )),
+            PromiseState::Pending => Err(anyhow!(
+                "JS module `{}` is still pending after startup; top-level await is not supported",
+                entry_path.display()
+            )),
+        }
     }
 
     /// Drains outbound bridge payloads that the JS runtime queued.
