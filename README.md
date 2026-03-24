@@ -47,19 +47,19 @@ There is a simple example in [examples/hello_world_counter.js](examples/hello_wo
 
 Run it directly:
 
-```powershell
+```sh
 cargo run -- examples/hello_world_counter.js
 ```
 
 Or use the helper script:
 
-```powershell
+```sh
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-example.ps1
 ```
 
 ## Running Tests
 
-```powershell
+```sh
 cargo test
 ```
 
