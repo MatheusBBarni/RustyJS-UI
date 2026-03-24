@@ -47,6 +47,14 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_exposes_flat_list_helper() {
+        let source = bootstrap().source;
+        assert!(source.contains("function createFlatList(props = {})"));
+        assert!(source.contains("globalThis.FlatList = (props) => createFlatList(props);"));
+        assert!(source.contains("return createNode('FlatList', {"));
+    }
+
+    #[test]
     fn bundled_sample_app_matches_prd_shape() {
         let source = counter_app().source;
         assert!(source.contains("function AppLayout()"));

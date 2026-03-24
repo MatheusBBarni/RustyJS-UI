@@ -93,19 +93,19 @@ fn collect_texts(node: &UiNode) -> Vec<&str> {
 fn collect_texts_into<'a>(node: &'a UiNode, texts: &mut Vec<&'a str>) {
     match node {
         UiNode::Text(TextNode { text, .. }) => texts.push(text.as_str()),
-        UiNode::View(view) => {
-            for child in &view.children {
+        UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {}
+        _ => {
+            for child in node.children() {
                 collect_texts_into(child, texts);
             }
         }
-        UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {}
     }
 }
 
 fn find_select_input(node: &UiNode) -> Option<&SelectInputNode> {
     match node {
         UiNode::SelectInput(select) => Some(select),
-        UiNode::View(view) => view.children.iter().find_map(find_select_input),
         UiNode::Text(_) | UiNode::Button(_) | UiNode::TextInput(_) => None,
+        _ => node.children().iter().find_map(find_select_input),
     }
 }

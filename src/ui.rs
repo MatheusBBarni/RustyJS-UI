@@ -3,9 +3,12 @@ use crate::style::{
     AlignItems, AppearanceStyle, Color as StyleColor, EdgeInsets, FlexDirection, JustifyContent,
     SizeValue, Style,
 };
-use crate::vdom::{ButtonNode, SelectInputNode, TextInputNode, TextNode, UiNode, ViewNode};
+use crate::vdom::{
+    ButtonNode, FlatListNode, SelectInputNode, TextInputNode, TextNode, UiNode, ViewNode,
+};
 use iced::theme;
-use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
+use iced::widget::scrollable::{Direction, Properties};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
 use iced::{alignment, Alignment, Background, Color, Element, Length, Padding, Theme};
 use serde_json::Value;
 use std::rc::Rc;
@@ -29,6 +32,7 @@ where
 {
     match node {
         UiNode::View(view) => render_view(view, on_event),
+        UiNode::FlatList(flat_list) => render_flat_list(flat_list, on_event),
         UiNode::Text(text_node) => render_text(text_node),
         UiNode::Button(button_node) => render_button(button_node, on_event),
         UiNode::TextInput(input_node) => render_text_input(input_node, on_event),
@@ -60,8 +64,12 @@ where
                 .spacing(node.style.layout.spacing)
                 .align_items(to_alignment(node.style.layout.align_items));
 
-            if fill_main_axis {
+            if fill_main_axis || has_explicit_size(node.style.layout.width) {
                 layout = layout.width(Length::Fill);
+            }
+
+            if has_explicit_size(node.style.layout.height) {
+                layout = layout.height(Length::Fill);
             }
 
             layout.into()
@@ -71,7 +79,11 @@ where
                 .spacing(node.style.layout.spacing)
                 .align_items(to_alignment(node.style.layout.align_items));
 
-            if fill_main_axis {
+            if has_explicit_size(node.style.layout.width) {
+                layout = layout.width(Length::Fill);
+            }
+
+            if fill_main_axis || has_explicit_size(node.style.layout.height) {
                 layout = layout.height(Length::Fill);
             }
 
@@ -80,6 +92,30 @@ where
     };
 
     wrap_view(content, &node.style)
+}
+
+fn render_flat_list<'a, Message>(
+    node: &'a FlatListNode,
+    on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+) -> Element<'a, Message>
+where
+    Message: Clone + 'a,
+{
+    let content = if let Some(child) = node.children.first() {
+        render_node(child, on_event)
+    } else {
+        Space::with_width(Length::Shrink).into()
+    };
+
+    let widget = scrollable(content)
+        .direction(to_scroll_direction(node.style.layout.flex_direction))
+        .width(to_length(node.style.layout.width))
+        .height(to_length(node.style.layout.height))
+        .style(theme::Scrollable::custom(NodeScrollableStyle::new(
+            node.style.appearance.clone(),
+        )));
+
+    wrap_with_container(widget.into(), &node.style, true, false)
 }
 
 fn render_text<'a, Message>(node: &'a TextNode) -> Element<'a, Message>
@@ -411,6 +447,10 @@ fn has_appearance(style: &Style) -> bool {
         || style.text.color.is_some()
 }
 
+fn has_explicit_size(value: SizeValue) -> bool {
+    !matches!(value, SizeValue::Auto | SizeValue::Shrink)
+}
+
 fn to_alignment(value: AlignItems) -> Alignment {
     match value {
         AlignItems::Start | AlignItems::Stretch => Alignment::Start,
@@ -488,6 +528,15 @@ fn to_length(value: SizeValue) -> Length {
     }
 }
 
+fn to_scroll_direction(direction: FlexDirection) -> Direction {
+    let properties = Properties::new().width(8).scroller_width(8).margin(2);
+
+    match direction {
+        FlexDirection::Row => Direction::Horizontal(properties),
+        FlexDirection::Column => Direction::Vertical(properties),
+    }
+}
+
 impl From<StyleColor> for Color {
     fn from(value: StyleColor) -> Self {
         Self::from_rgba(value.red, value.green, value.blue, value.alpha)
@@ -498,6 +547,66 @@ impl From<StyleColor> for Color {
 struct NodeButtonStyle {
     appearance: AppearanceStyle,
     text_color: Option<StyleColor>,
+}
+
+#[derive(Debug, Clone)]
+struct NodeScrollableStyle {
+    appearance: AppearanceStyle,
+}
+
+impl NodeScrollableStyle {
+    fn new(appearance: AppearanceStyle) -> Self {
+        Self { appearance }
+    }
+}
+
+impl iced::widget::scrollable::StyleSheet for NodeScrollableStyle {
+    type Style = Theme;
+
+    fn active(&self, theme: &Self::Style) -> iced::widget::scrollable::Scrollbar {
+        let palette = theme.extended_palette();
+
+        iced::widget::scrollable::Scrollbar {
+            background: Some(
+                self.appearance
+                    .background_color
+                    .map(Color::from)
+                    .unwrap_or(palette.background.weak.color)
+                    .into(),
+            ),
+            border_radius: self.appearance.border_radius.into(),
+            border_width: self.appearance.border_width,
+            border_color: self
+                .appearance
+                .border_color
+                .map(Color::from)
+                .unwrap_or(Color::TRANSPARENT),
+            scroller: iced::widget::scrollable::Scroller {
+                color: self
+                    .appearance
+                    .border_color
+                    .map(Color::from)
+                    .unwrap_or(palette.primary.base.color),
+                border_radius: self.appearance.border_radius.into(),
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
+            },
+        }
+    }
+
+    fn hovered(
+        &self,
+        theme: &Self::Style,
+        is_mouse_over_scrollbar: bool,
+    ) -> iced::widget::scrollable::Scrollbar {
+        let mut scrollbar = self.active(theme);
+
+        if is_mouse_over_scrollbar {
+            scrollbar.scroller.color = theme.extended_palette().primary.strong.color;
+        }
+
+        scrollbar
+    }
 }
 
 impl NodeButtonStyle {

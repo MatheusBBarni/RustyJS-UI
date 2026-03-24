@@ -107,6 +107,7 @@ impl WireNode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UiNode {
     View(ViewNode),
+    FlatList(FlatListNode),
     Text(TextNode),
     Button(ButtonNode),
     TextInput(TextInputNode),
@@ -117,6 +118,7 @@ impl UiNode {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::View(_) => "View",
+            Self::FlatList(_) => "FlatList",
             Self::Text(_) => "Text",
             Self::Button(_) => "Button",
             Self::TextInput(_) => "TextInput",
@@ -127,6 +129,7 @@ impl UiNode {
     pub fn style(&self) -> &Style {
         match self {
             Self::View(node) => &node.style,
+            Self::FlatList(node) => &node.style,
             Self::Text(node) => &node.style,
             Self::Button(node) => &node.style,
             Self::TextInput(node) => &node.style,
@@ -137,6 +140,7 @@ impl UiNode {
     pub fn children(&self) -> &[UiNode] {
         match self {
             Self::View(node) => &node.children,
+            Self::FlatList(node) => &node.children,
             Self::Text(_) => &[],
             Self::Button(_) => &[],
             Self::TextInput(_) => &[],
@@ -147,6 +151,7 @@ impl UiNode {
     pub fn into_children(self) -> Vec<UiNode> {
         match self {
             Self::View(node) => node.children,
+            Self::FlatList(node) => node.children,
             Self::Text(_) | Self::Button(_) | Self::TextInput(_) | Self::SelectInput(_) => {
                 Vec::new()
             }
@@ -160,6 +165,14 @@ impl TryFrom<WireNode> for UiNode {
     fn try_from(node: WireNode) -> Result<Self> {
         match node.kind.as_str() {
             "View" => Ok(Self::View(ViewNode {
+                style: node.props.style,
+                children: node
+                    .children
+                    .into_iter()
+                    .map(UiNode::try_from)
+                    .collect::<Result<Vec<_>>>()?,
+            })),
+            "FlatList" => Ok(Self::FlatList(FlatListNode {
                 style: node.props.style,
                 children: node
                     .children
@@ -213,6 +226,18 @@ pub struct ViewNode {
 }
 
 impl ViewNode {
+    pub fn new(style: Style, children: Vec<UiNode>) -> Self {
+        Self { style, children }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlatListNode {
+    pub style: Style,
+    pub children: Vec<UiNode>,
+}
+
+impl FlatListNode {
     pub fn new(style: Style, children: Vec<UiNode>) -> Self {
         Self { style, children }
     }
@@ -360,6 +385,12 @@ impl SelectInputNode {
 impl From<ViewNode> for UiNode {
     fn from(node: ViewNode) -> Self {
         Self::View(node)
+    }
+}
+
+impl From<FlatListNode> for UiNode {
+    fn from(node: FlatListNode) -> Self {
+        Self::FlatList(node)
     }
 }
 
