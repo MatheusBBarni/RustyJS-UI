@@ -64,8 +64,12 @@ where
                 .spacing(node.style.layout.spacing)
                 .align_items(to_alignment(node.style.layout.align_items));
 
-            if fill_main_axis {
+            if fill_main_axis || has_explicit_size(node.style.layout.width) {
                 layout = layout.width(Length::Fill);
+            }
+
+            if has_explicit_size(node.style.layout.height) {
+                layout = layout.height(Length::Fill);
             }
 
             layout.into()
@@ -75,7 +79,11 @@ where
                 .spacing(node.style.layout.spacing)
                 .align_items(to_alignment(node.style.layout.align_items));
 
-            if fill_main_axis {
+            if has_explicit_size(node.style.layout.width) {
+                layout = layout.width(Length::Fill);
+            }
+
+            if fill_main_axis || has_explicit_size(node.style.layout.height) {
                 layout = layout.height(Length::Fill);
             }
 
@@ -437,6 +445,10 @@ fn has_appearance(style: &Style) -> bool {
         || style.appearance.border_width > 0.0
         || style.appearance.border_radius > 0.0
         || style.text.color.is_some()
+}
+
+fn has_explicit_size(value: SizeValue) -> bool {
+    !matches!(value, SizeValue::Auto | SizeValue::Shrink)
 }
 
 fn to_alignment(value: AlignItems) -> Alignment {

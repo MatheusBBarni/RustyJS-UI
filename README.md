@@ -52,6 +52,7 @@ Available examples:
 - [examples/select_input_echo.js](examples/select_input_echo.js): controlled select input backed by labeled options
 - [examples/flex_form.js](examples/flex_form.js): centered form layout using web-style flex props
 - [examples/flat_list.js](examples/flat_list.js): renders repeated rows from array data with item-specific callbacks
+- [examples/task_form_flat_list.js](examples/task_form_flat_list.js): simple task form that adds, completes, and deletes items inside a FlatList
 
 Run any example directly:
 
