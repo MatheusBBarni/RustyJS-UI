@@ -15,7 +15,7 @@ thread_local! {
 /// Boa runtime host for the RustyJS-UI bridge.
 ///
 /// The runtime evaluates bundled JS files that expose the JS-side helpers
-/// (`App`, `View`, `Text`, `Button`, `TextInput`, and `__SEND_TO_RUST__`)
+/// (`App`, `View`, `Text`, `Button`, `TextInput`, `SelectInput`, and `__SEND_TO_RUST__`)
 /// plus a sample counter app used for the MVP.
 #[derive(Debug)]
 pub struct JsRuntime {

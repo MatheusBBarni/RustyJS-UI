@@ -27,7 +27,10 @@ fn text_input_example_renders_expected_initial_state() {
     assert_eq!(input.value, "");
     assert_eq!(input.placeholder.as_deref(), Some("Type something"));
     assert_eq!(
-        input.on_change.as_ref().map(|callback| callback.id.as_str()),
+        input
+            .on_change
+            .as_ref()
+            .map(|callback| callback.id.as_str()),
         Some("cb_1")
     );
     assert!(texts.iter().any(|text| *text == "TextInput Example"));
@@ -58,7 +61,10 @@ fn text_input_change_re_renders_example() {
 
 fn boot_runtime() -> JsRuntime {
     let mut runtime = JsRuntime::new().unwrap();
-    assert!(runtime.eval_script(JsRuntime::bootstrap_source()).unwrap().is_empty());
+    assert!(runtime
+        .eval_script(JsRuntime::bootstrap_source())
+        .unwrap()
+        .is_empty());
     runtime
 }
 
@@ -76,17 +82,14 @@ fn collect_texts_into<'a>(node: &'a UiNode, texts: &mut Vec<&'a str>) {
                 collect_texts_into(child, texts);
             }
         }
-        UiNode::Button(_) | UiNode::TextInput(_) => {}
+        UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {}
     }
 }
 
 fn find_text_input(node: &UiNode) -> Option<&TextInputNode> {
     match node {
         UiNode::TextInput(input) => Some(input),
-        UiNode::View(view) => view
-            .children
-            .iter()
-            .find_map(find_text_input),
-        UiNode::Text(_) | UiNode::Button(_) => None,
+        UiNode::View(view) => view.children.iter().find_map(find_text_input),
+        UiNode::Text(_) | UiNode::Button(_) | UiNode::SelectInput(_) => None,
     }
 }

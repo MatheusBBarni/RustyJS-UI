@@ -26,6 +26,7 @@ The current implementation includes:
   - `Text`
   - `Button`
   - `TextInput`
+  - `SelectInput`
 - Style support for common layout and text fields
 - Callback-based event dispatch from Rust back into JavaScript
 
@@ -35,20 +36,30 @@ At a high level, the flow looks like this:
 
 1. JavaScript calls `App.run(...)`.
 2. The runtime sends an `INIT_WINDOW` payload to Rust.
-3. The JavaScript `render` function returns a tree of nodes such as `View`, `Text`, and `Button`.
+3. The JavaScript `render` function returns a tree of nodes such as `View`, `Text`, `Button`, `TextInput`, and `SelectInput`.
 4. That tree is serialized into an `UPDATE_VDOM` payload.
 5. Rust deserializes the payload into typed UI nodes and renders them with `iced`.
 6. When the user clicks a button or changes an input, Rust sends the callback ID back into the JS runtime.
 7. JavaScript updates state and calls `App.requestRender()`.
 
-## Running The Example
+## Running Examples
 
-There is a simple example in [examples/hello_world_counter.js](examples/hello_world_counter.js) that renders `Hello world` and an increment button.
+Available examples:
 
-Run it directly:
+- [examples/hello_world_counter.js](examples/hello_world_counter.js): renders `Hello world` and an increment button
+- [examples/text_input_echo.js](examples/text_input_echo.js): controlled text input with live echo
+- [examples/select_input_echo.js](examples/select_input_echo.js): controlled select input backed by labeled options
+
+Run any example directly:
 
 ```sh
 cargo run -- examples/hello_world_counter.js
+```
+
+For example:
+
+```sh
+cargo run -- examples/select_input_echo.js
 ```
 
 Or use the helper script:
@@ -61,6 +72,48 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-example.ps1
 
 ```sh
 cargo test
+```
+
+## SelectInput API
+
+`SelectInput` is backed by Iced's `PickList`, which is the closest native equivalent to a web-style single-select dropdown.
+
+Supported props:
+
+- `value: string`
+- `placeholder?: string`
+- `options: Array<string | { label: string, value: string }>`
+- `onChange?: (nextValue: string) => void`
+- `style?: { width, padding, borderWidth, borderRadius, borderColor, backgroundColor, color, fontSize }`
+
+Example:
+
+```js
+const frameworks = [
+  { label: 'Rust', value: 'rust' },
+  { label: 'TypeScript', value: 'typescript' }
+];
+
+let value = '';
+
+function handleChange(nextValue) {
+  value = nextValue;
+  App.requestRender();
+}
+
+SelectInput({
+  value,
+  placeholder: 'Choose a language',
+  options: frameworks,
+  onChange: handleChange,
+  style: {
+    width: 320,
+    padding: 10,
+    borderWidth: 1,
+    borderRadius: 8,
+    borderColor: '#C7CDD4'
+  }
+});
 ```
 
 ## Project Layout

@@ -107,6 +107,7 @@ globalThis.View = (props) => createNode('View', props);
 globalThis.Text = (props) => createNode('Text', props);
 globalThis.Button = (props) => createNode('Button', props);
 globalThis.TextInput = (props) => createNode('TextInput', props);
+globalThis.SelectInput = (props) => createNode('SelectInput', props);
 
 class AppEngine {
     constructor() {

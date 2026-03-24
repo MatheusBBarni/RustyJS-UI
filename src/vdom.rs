@@ -2,6 +2,7 @@ use crate::style::Style;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CallbackRef {
@@ -56,6 +57,8 @@ pub struct WireProps {
     #[serde(default)]
     pub placeholder: Option<String>,
     #[serde(default)]
+    pub options: Vec<SelectOption>,
+    #[serde(default)]
     pub disabled: bool,
     #[serde(default)]
     pub multiline: bool,
@@ -107,6 +110,7 @@ pub enum UiNode {
     Text(TextNode),
     Button(ButtonNode),
     TextInput(TextInputNode),
+    SelectInput(SelectInputNode),
 }
 
 impl UiNode {
@@ -116,6 +120,7 @@ impl UiNode {
             Self::Text(_) => "Text",
             Self::Button(_) => "Button",
             Self::TextInput(_) => "TextInput",
+            Self::SelectInput(_) => "SelectInput",
         }
     }
 
@@ -125,6 +130,7 @@ impl UiNode {
             Self::Text(node) => &node.style,
             Self::Button(node) => &node.style,
             Self::TextInput(node) => &node.style,
+            Self::SelectInput(node) => &node.style,
         }
     }
 
@@ -134,13 +140,16 @@ impl UiNode {
             Self::Text(_) => &[],
             Self::Button(_) => &[],
             Self::TextInput(_) => &[],
+            Self::SelectInput(_) => &[],
         }
     }
 
     pub fn into_children(self) -> Vec<UiNode> {
         match self {
             Self::View(node) => node.children,
-            Self::Text(_) | Self::Button(_) | Self::TextInput(_) => Vec::new(),
+            Self::Text(_) | Self::Button(_) | Self::TextInput(_) | Self::SelectInput(_) => {
+                Vec::new()
+            }
         }
     }
 }
@@ -175,6 +184,14 @@ impl TryFrom<WireNode> for UiNode {
                 style: node.props.style,
                 disabled: node.props.disabled,
                 multiline: node.props.multiline,
+            })),
+            "SelectInput" => Ok(Self::SelectInput(SelectInputNode {
+                value: node.props.value.unwrap_or_default(),
+                placeholder: node.props.placeholder,
+                options: node.props.options,
+                on_change: node.props.on_change,
+                style: node.props.style,
+                disabled: node.props.disabled,
             })),
             other => Err(anyhow!("unsupported node type: {other}")),
         }
@@ -258,6 +275,88 @@ impl TextInputNode {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SelectOption {
+    pub label: String,
+    pub value: String,
+}
+
+impl SelectOption {
+    pub fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            value: value.into(),
+        }
+    }
+}
+
+impl fmt::Display for SelectOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
+impl<'de> Deserialize<'de> for SelectOption {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum SelectOptionRepr {
+            Value(String),
+            Object {
+                #[serde(default)]
+                label: Option<String>,
+                #[serde(default)]
+                value: Option<String>,
+            },
+        }
+
+        match SelectOptionRepr::deserialize(deserializer)? {
+            SelectOptionRepr::Value(value) => Ok(Self::new(value.clone(), value)),
+            SelectOptionRepr::Object { label, value } => match (label, value) {
+                (Some(label), Some(value)) => Ok(Self::new(label, value)),
+                (Some(label), None) => Ok(Self::new(label.clone(), label)),
+                (None, Some(value)) => Ok(Self::new(value.clone(), value)),
+                (None, None) => Err(serde::de::Error::custom(
+                    "select option must provide a label or a value",
+                )),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectInputNode {
+    pub value: String,
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub options: Vec<SelectOption>,
+    pub on_change: Option<CallbackRef>,
+    pub style: Style,
+    pub disabled: bool,
+}
+
+impl SelectInputNode {
+    pub fn new(value: impl Into<String>, options: Vec<SelectOption>, style: Style) -> Self {
+        Self {
+            value: value.into(),
+            placeholder: None,
+            options,
+            on_change: None,
+            style,
+            disabled: false,
+        }
+    }
+
+    pub fn selected_option(&self) -> Option<&SelectOption> {
+        self.options
+            .iter()
+            .find(|option| option.value == self.value)
+    }
+}
+
 impl From<ViewNode> for UiNode {
     fn from(node: ViewNode) -> Self {
         Self::View(node)
@@ -279,6 +378,12 @@ impl From<ButtonNode> for UiNode {
 impl From<TextInputNode> for UiNode {
     fn from(node: TextInputNode) -> Self {
         Self::TextInput(node)
+    }
+}
+
+impl From<SelectInputNode> for UiNode {
+    fn from(node: SelectInputNode) -> Self {
+        Self::SelectInput(node)
     }
 }
 
@@ -331,6 +436,49 @@ mod tests {
                 assert!(!button.disabled);
             }
             other => panic!("expected Button node, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn select_input_node_deserializes_into_typed_ui_node() {
+        let value = json!({
+            "type": "SelectInput",
+            "props": {
+                "value": "typescript",
+                "placeholder": "Choose a language",
+                "options": [
+                    "rust",
+                    { "label": "TypeScript", "value": "typescript" }
+                ],
+                "onChange": "cb_7",
+                "style": {
+                    "width": 240,
+                    "borderWidth": 1,
+                    "borderRadius": 8
+                }
+            }
+        });
+
+        let node = UiNode::try_from(value).unwrap();
+
+        match node {
+            UiNode::SelectInput(select) => {
+                assert_eq!(select.value, "typescript");
+                assert_eq!(select.placeholder.as_deref(), Some("Choose a language"));
+                assert_eq!(select.options.len(), 2);
+                assert_eq!(select.options[0], SelectOption::new("rust", "rust"));
+                assert_eq!(
+                    select.options[1],
+                    SelectOption::new("TypeScript", "typescript")
+                );
+                assert_eq!(select.on_change, Some(CallbackRef::new("cb_7")));
+                assert!(!select.disabled);
+                assert_eq!(
+                    select.selected_option(),
+                    Some(&SelectOption::new("TypeScript", "typescript"))
+                );
+            }
+            other => panic!("expected SelectInput node, got {other:?}"),
         }
     }
 }

@@ -27,7 +27,10 @@ fn hello_world_fixture_renders_expected_vdom() {
     assert!(texts.iter().any(|text| *text == "Hello world"));
     assert!(texts.iter().any(|text| *text == "Count is: 0"));
     assert_eq!(
-        button.on_click.as_ref().map(|callback| callback.id.as_str()),
+        button
+            .on_click
+            .as_ref()
+            .map(|callback| callback.id.as_str()),
         Some("cb_1")
     );
 }
@@ -53,7 +56,10 @@ fn increment_button_callback_re_renders_fixture() {
 
 fn boot_runtime() -> JsRuntime {
     let mut runtime = JsRuntime::new().unwrap();
-    assert!(runtime.eval_script(JsRuntime::bootstrap_source()).unwrap().is_empty());
+    assert!(runtime
+        .eval_script(JsRuntime::bootstrap_source())
+        .unwrap()
+        .is_empty());
     runtime
 }
 
@@ -71,7 +77,7 @@ fn collect_texts_into<'a>(node: &'a UiNode, texts: &mut Vec<&'a str>) {
                 collect_texts_into(child, texts);
             }
         }
-        UiNode::Button(_) | UiNode::TextInput(_) => {}
+        UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {}
     }
 }
 
@@ -83,6 +89,6 @@ fn find_button<'a>(node: &'a UiNode, label: &str) -> Option<&'a ButtonNode> {
             .children
             .iter()
             .find_map(|child| find_button(child, label)),
-        UiNode::Text(_) | UiNode::TextInput(_) => None,
+        UiNode::Text(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => None,
     }
 }
