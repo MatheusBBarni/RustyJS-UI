@@ -19,6 +19,7 @@ Instead of crossing the JS/Rust boundary for every widget call, the runtime seri
 The current implementation includes:
 
 - An embedded JavaScript runtime powered by `boa_engine`
+- Native ESM support for local multi-file `.js` apps
 - A VDOM-style bridge between JavaScript and Rust
 - Native rendering through `iced`
 - Basic components:
@@ -53,6 +54,7 @@ Available examples:
 - [examples/flex_form.js](examples/flex_form.js): centered form layout using web-style flex props
 - [examples/flat_list.js](examples/flat_list.js): renders repeated rows from array data with item-specific callbacks
 - [examples/task_form_flat_list.js](examples/task_form_flat_list.js): simple task form that adds, completes, and deletes items inside a FlatList
+- [examples/multi_file_save_button/main.js](examples/multi_file_save_button/main.js): imports a reusable `SaveButton` component from a sibling module
 - [examples/pokemon_fetch.js](examples/pokemon_fetch.js): fetches Pokemon details from PokeAPI using the new async `fetch` bridge
 
 Run any example directly:
@@ -90,6 +92,36 @@ Or try the fetch example:
 ```sh
 cargo run -- examples/pokemon_fetch.js
 ```
+
+Or run the multi-file example:
+
+```sh
+cargo run -- examples/multi_file_save_button/main.js
+```
+
+## Multi-file ESM Apps
+
+When you pass a file path to `cargo run -- <entry-file>`, RustyJS-UI now treats that file as an ECMAScript module entrypoint. Local component files can use standard static imports and exports without a bundler.
+
+```js
+// save_button.js
+export function SaveButton(props = {}) {
+  return Button({
+    text: props.text ?? 'Save',
+    onClick: props.onClick
+  });
+}
+
+// main.js
+import { SaveButton } from './save_button.js';
+```
+
+Current module-loading rules:
+
+- Only relative `./` and `../` imports are supported
+- Import specifiers must include the `.js` extension
+- Imports are resolved relative to the importing file and must stay inside the entry file's root directory
+- Existing single-file apps still work unchanged
 
 ## Running Tests
 
