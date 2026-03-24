@@ -1,8 +1,11 @@
 pub fn bootstrap() -> &'static str {
     r#"
-const GlobalCallbackRegistry = {
-    callbacks: new Map(),
-    nextId: 1,
+class CallbackRegistry {
+    constructor() {
+        this.callbacks = new Map();
+        this.nextId = 1;
+    }
+
     register(fn) {
         if (typeof fn !== 'function') {
             return null;
@@ -10,8 +13,9 @@ const GlobalCallbackRegistry = {
 
         const id = `cb_${this.nextId++}`;
         this.callbacks.set(id, fn);
-        return { id };
-    },
+        return id;
+    }
+
     trigger(id, payload) {
         const fn = this.callbacks.get(id);
         if (!fn) {
@@ -20,24 +24,34 @@ const GlobalCallbackRegistry = {
         }
 
         fn(payload);
-    },
+    }
+
     clear() {
         this.callbacks.clear();
     }
-};
+}
+
+const GlobalCallbackRegistry = new CallbackRegistry();
 
 globalThis.RustBridge = {
     trigger: (id, payload) => GlobalCallbackRegistry.trigger(id, payload)
 };
 
+if (!globalThis.console) {
+    globalThis.console = {
+        warn() {},
+        error() {}
+    };
+}
+
 globalThis.__SEND_TO_RUST__ = (payload) => {
     __RUSTYJS_NATIVE_CAPTURE__(String(payload));
 };
 
-function appendChildren(target, value) {
+function flattenChildren(target, value) {
     if (Array.isArray(value)) {
         for (const child of value) {
-            appendChildren(target, child);
+            flattenChildren(target, child);
         }
         return;
     }
@@ -71,7 +85,7 @@ function createNode(type, props = {}) {
 
     for (const [key, value] of Object.entries(props)) {
         if (key === 'children') {
-            appendChildren(node.children, value);
+            flattenChildren(node.children, value);
             continue;
         }
 
@@ -121,20 +135,29 @@ class AppEngine {
         }
 
         this.isRenderPending = true;
-        Promise.resolve().then(() => this.executeRender());
+        Promise.resolve().then(() => {
+            try {
+                this.executeRender();
+            } catch (error) {
+                console.error('RustyJS-UI render failed:', error);
+                throw error;
+            }
+        });
     }
 
     executeRender() {
-        GlobalCallbackRegistry.clear();
+        try {
+            GlobalCallbackRegistry.clear();
 
-        const vdomTree = this.rootRenderFn();
+            const vdomTree = this.rootRenderFn();
 
-        __SEND_TO_RUST__(JSON.stringify({
-            action: 'UPDATE_VDOM',
-            tree: vdomTree
-        }));
-
-        this.isRenderPending = false;
+            __SEND_TO_RUST__(JSON.stringify({
+                action: 'UPDATE_VDOM',
+                tree: vdomTree
+            }));
+        } finally {
+            this.isRenderPending = false;
+        }
     }
 }
 
@@ -187,4 +210,32 @@ App.run({
     render: AppLayout
 });
 "#
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bootstrap_uses_string_callback_ids() {
+        let source = bootstrap();
+        assert!(source.contains("return id;"));
+        assert!(!source.contains("return { id };"));
+    }
+
+    #[test]
+    fn bootstrap_defends_pending_state_on_render_errors() {
+        let source = bootstrap();
+        assert!(source.contains("finally {"));
+        assert!(source.contains("this.isRenderPending = false;"));
+    }
+
+    #[test]
+    fn bundled_sample_app_matches_prd_shape() {
+        let source = counter_app();
+        assert!(source.contains("function AppLayout()"));
+        assert!(source.contains("App.requestRender();"));
+        assert!(source.contains("Button({"));
+        assert!(source.contains("Text({"));
+    }
 }

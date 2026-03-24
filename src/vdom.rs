@@ -1,9 +1,9 @@
 use crate::style::Style;
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CallbackRef {
     pub id: String,
 }
@@ -11,6 +11,33 @@ pub struct CallbackRef {
 impl CallbackRef {
     pub fn new(id: impl Into<String>) -> Self {
         Self { id: id.into() }
+    }
+}
+
+impl Serialize for CallbackRef {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.id)
+    }
+}
+
+impl<'de> Deserialize<'de> for CallbackRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum CallbackRefRepr {
+            Id(String),
+            Object { id: String },
+        }
+
+        match CallbackRefRepr::deserialize(deserializer)? {
+            CallbackRefRepr::Id(id) | CallbackRefRepr::Object { id } => Ok(Self { id }),
+        }
     }
 }
 
@@ -252,5 +279,58 @@ impl From<ButtonNode> for UiNode {
 impl From<TextInputNode> for UiNode {
     fn from(node: TextInputNode) -> Self {
         Self::TextInput(node)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn callback_ref_deserializes_from_string_id() {
+        let callback: CallbackRef = serde_json::from_value(json!("cb_1")).unwrap();
+
+        assert_eq!(callback, CallbackRef::new("cb_1"));
+    }
+
+    #[test]
+    fn callback_ref_deserializes_from_object_form() {
+        let callback: CallbackRef = serde_json::from_value(json!({ "id": "cb_2" })).unwrap();
+
+        assert_eq!(callback, CallbackRef::new("cb_2"));
+    }
+
+    #[test]
+    fn callback_ref_serializes_as_string_id() {
+        let callback = CallbackRef::new("cb_3");
+
+        assert_eq!(serde_json::to_value(callback).unwrap(), json!("cb_3"));
+    }
+
+    #[test]
+    fn prd_style_button_node_deserializes_into_typed_ui_node() {
+        let value = json!({
+            "type": "Button",
+            "props": {
+                "text": "Increment",
+                "onClick": "cb_1",
+                "style": {
+                    "padding": 10,
+                    "backgroundColor": "#007AFF"
+                }
+            }
+        });
+
+        let node = UiNode::try_from(value).unwrap();
+
+        match node {
+            UiNode::Button(button) => {
+                assert_eq!(button.text, "Increment");
+                assert_eq!(button.on_click, Some(CallbackRef::new("cb_1")));
+                assert!(!button.disabled);
+            }
+            other => panic!("expected Button node, got {other:?}"),
+        }
     }
 }

@@ -111,3 +111,107 @@ fn native_capture(
     OUTBOUND_QUEUE.with(|queue| queue.borrow_mut().push_back(payload));
     Ok(JsValue::undefined())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vdom::UiNode;
+    use serde_json::Value;
+
+    #[test]
+    fn eval_script_emits_prd_style_bridge_payloads() {
+        let mut runtime = JsRuntime::new().unwrap();
+
+        assert!(runtime.eval_script(scripts::bootstrap()).unwrap().is_empty());
+
+        let payloads = runtime
+            .eval_script(
+                r#"
+let counter = 0;
+
+function increment() {
+    counter += 1;
+    App.requestRender();
+}
+
+function AppLayout() {
+    return Button({
+        text: `Count is: ${counter}`,
+        onClick: increment,
+        style: { padding: 10, backgroundColor: '#007AFF' }
+    });
+}
+
+App.run({
+    title: 'Bridge Test',
+    windowSize: { width: 320, height: 200 },
+    render: AppLayout
+});
+"#,
+            )
+            .unwrap();
+
+        assert_eq!(payloads.len(), 2);
+        assert!(matches!(
+            &payloads[0],
+            BridgePayload::InitWindow {
+                title,
+                width: 320,
+                height: 200
+            } if title == "Bridge Test"
+        ));
+
+        match payloads[1].typed_tree().unwrap() {
+            Some(UiNode::Button(button)) => {
+                assert_eq!(button.text, "Count is: 0");
+                assert_eq!(button.on_click.as_ref().map(|callback| callback.id.as_str()), Some("cb_1"));
+            }
+            other => panic!("expected button tree payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn trigger_callback_re_renders_with_updated_vdom() {
+        let mut runtime = JsRuntime::new().unwrap();
+
+        assert!(runtime.eval_script(scripts::bootstrap()).unwrap().is_empty());
+        runtime
+            .eval_script(
+                r#"
+let counter = 0;
+
+function increment() {
+    counter += 1;
+    App.requestRender();
+}
+
+function AppLayout() {
+    return View({
+        children: [
+            Text({ text: `Count is: ${counter}` }),
+            Button({ text: 'Increment', onClick: increment })
+        ]
+    });
+}
+
+App.run({
+    title: 'Counter Test',
+    render: AppLayout
+});
+"#,
+            )
+            .unwrap();
+
+        let payloads = runtime.trigger_callback("cb_1", Value::Null).unwrap();
+
+        assert_eq!(payloads.len(), 1);
+
+        match payloads[0].typed_tree().unwrap() {
+            Some(UiNode::View(view)) => match view.children.first() {
+                Some(UiNode::Text(text)) => assert_eq!(text.text, "Count is: 1"),
+                other => panic!("expected first child text node, got {other:?}"),
+            },
+            other => panic!("expected view tree payload, got {other:?}"),
+        }
+    }
+}
