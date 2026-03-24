@@ -59,6 +59,15 @@ function flattenChildren(target, value) {
     }
 }
 
+function appendRenderable(target, value, context) {
+    if (typeof value === 'function') {
+        appendRenderable(target, value(context), context);
+        return;
+    }
+
+    flattenChildren(target, value);
+}
+
 function normalizeFlexValue(value) {
     if (typeof value !== 'string') {
         return value;
@@ -99,6 +108,58 @@ function normalizeStyle(style = {}) {
     };
 }
 
+function createFlatList(props = {}) {
+    const {
+        data = [],
+        renderItem,
+        keyExtractor: _keyExtractor,
+        horizontal = false,
+        style,
+        contentContainerStyle,
+        ListHeaderComponent,
+        ListFooterComponent,
+        ListEmptyComponent,
+        ItemSeparatorComponent,
+        children: _children,
+        ...rest
+    } = props;
+    const items = Array.isArray(data) ? data : [];
+    const listChildren = [];
+
+    appendRenderable(listChildren, ListHeaderComponent, { data: items });
+
+    if (items.length === 0) {
+        appendRenderable(listChildren, ListEmptyComponent, { data: items });
+    } else if (typeof renderItem === 'function') {
+        for (let index = 0; index < items.length; index += 1) {
+            const item = items[index];
+            appendRenderable(listChildren, renderItem({ item, index }));
+
+            if (index < items.length - 1) {
+                appendRenderable(listChildren, ItemSeparatorComponent, {
+                    leadingItem: item,
+                    leadingIndex: index
+                });
+            }
+        }
+    } else {
+        console.warn('FlatList requires a renderItem function.');
+    }
+
+    appendRenderable(listChildren, ListFooterComponent, { data: items });
+
+    return createNode('FlatList', {
+        ...rest,
+        style: resolveFlatListStyle(style, horizontal),
+        children: [
+            View({
+                style: resolveFlatListContentStyle(contentContainerStyle, horizontal),
+                children: listChildren
+            })
+        ]
+    });
+}
+
 function createNode(type, props = {}) {
     const node = { type, props: {}, children: [] };
 
@@ -124,11 +185,38 @@ function createNode(type, props = {}) {
     return node;
 }
 
+function resolveFlatListStyle(style, horizontal) {
+    const direction = horizontal ? 'row' : 'column';
+    const baseStyle = style || {};
+
+    return {
+        ...baseStyle,
+        width: baseStyle.width ?? 'fill',
+        height: baseStyle.height ?? 'fill',
+        direction,
+        flexDirection: direction
+    };
+}
+
+function resolveFlatListContentStyle(style, horizontal) {
+    const direction = horizontal ? 'row' : 'column';
+    const baseStyle = style || {};
+
+    return {
+        ...baseStyle,
+        width: baseStyle.width ?? (horizontal ? 'auto' : 'fill'),
+        height: baseStyle.height ?? (horizontal ? 'fill' : 'auto'),
+        direction,
+        flexDirection: direction
+    };
+}
+
 globalThis.View = (props) => createNode('View', props);
 globalThis.Text = (props) => createNode('Text', props);
 globalThis.Button = (props) => createNode('Button', props);
 globalThis.TextInput = (props) => createNode('TextInput', props);
 globalThis.SelectInput = (props) => createNode('SelectInput', props);
+globalThis.FlatList = (props) => createFlatList(props);
 
 class AppEngine {
     constructor() {

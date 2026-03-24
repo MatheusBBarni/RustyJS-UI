@@ -27,6 +27,7 @@ The current implementation includes:
   - `Button`
   - `TextInput`
   - `SelectInput`
+  - `FlatList` (native scrollable list with JS-side item expansion)
 - Style support for common layout and text fields
 - Callback-based event dispatch from Rust back into JavaScript
 
@@ -50,6 +51,7 @@ Available examples:
 - [examples/text_input_echo.js](examples/text_input_echo.js): controlled text input with live echo
 - [examples/select_input_echo.js](examples/select_input_echo.js): controlled select input backed by labeled options
 - [examples/flex_form.js](examples/flex_form.js): centered form layout using web-style flex props
+- [examples/flat_list.js](examples/flat_list.js): renders repeated rows from array data with item-specific callbacks
 
 Run any example directly:
 
@@ -67,6 +69,12 @@ Or try the centered flex form example:
 
 ```sh
 cargo run -- examples/flex_form.js
+```
+
+Or try the FlatList example:
+
+```sh
+cargo run -- examples/flat_list.js
 ```
 
 Or use the helper script:
@@ -151,6 +159,62 @@ View({
     Text({ text: 'Centered content' }),
     Button({ text: 'Save' })
   ]
+});
+```
+
+## FlatList API
+
+`FlatList` accepts React Native-style `data` and `renderItem` props, expands them into child nodes in JavaScript, and renders them through a native `iced::scrollable` container in Rust. It supports scrolling, but it does not provide virtualization yet.
+
+Supported props:
+
+- `data: Array<any>`
+- `renderItem: ({ item, index }) => Node`
+- `horizontal?: boolean`
+- `style?: object` for the outer scroll container
+- `contentContainerStyle?: object` for the inner content layout
+- `ListEmptyComponent?: (() => Node) | Node`
+- `ListHeaderComponent?: (() => Node) | Node`
+- `ListFooterComponent?: (() => Node) | Node`
+- `ItemSeparatorComponent?: ((context) => Node) | Node`
+- `keyExtractor?: (item, index) => string` (accepted for API parity, currently ignored by the bridge)
+
+Default behavior:
+
+- Vertical lists default to `width: 'fill'` and `height: 'fill'`
+- Horizontal lists default to a fill-sized scroll container with row layout
+
+Example:
+
+```js
+const todos = [
+  { id: '1', title: 'Buy milk', done: false },
+  { id: '2', title: 'Call Ada', done: true }
+];
+
+FlatList({
+  data: todos,
+  style: {
+    gap: 10
+  },
+  renderItem: ({ item, index }) =>
+    View({
+      style: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      },
+      children: [
+        Text({ text: `${index + 1}. ${item.title}` }),
+        Button({
+          text: item.done ? 'Done' : 'Toggle',
+          onClick: () => {
+            item.done = !item.done;
+            App.requestRender();
+          }
+        })
+      ]
+    })
 });
 ```
 

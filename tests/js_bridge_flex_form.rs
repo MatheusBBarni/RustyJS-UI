@@ -137,12 +137,12 @@ fn collect_texts(node: &UiNode) -> Vec<&str> {
 fn collect_texts_into<'a>(node: &'a UiNode, texts: &mut Vec<&'a str>) {
     match node {
         UiNode::Text(TextNode { text, .. }) => texts.push(text.as_str()),
-        UiNode::View(view) => {
-            for child in &view.children {
+        UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {}
+        _ => {
+            for child in node.children() {
                 collect_texts_into(child, texts);
             }
         }
-        UiNode::Button(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => {}
     }
 }
 
@@ -152,11 +152,11 @@ fn find_text_input<'a>(node: &'a UiNode, placeholder: &str) -> Option<&'a TextIn
             Some(input)
         }
         UiNode::TextInput(_) => None,
-        UiNode::View(view) => view
-            .children
+        UiNode::Text(_) | UiNode::Button(_) | UiNode::SelectInput(_) => None,
+        _ => node
+            .children()
             .iter()
             .find_map(|child| find_text_input(child, placeholder)),
-        UiNode::Text(_) | UiNode::Button(_) | UiNode::SelectInput(_) => None,
     }
 }
 
@@ -166,11 +166,11 @@ fn find_select_input<'a>(node: &'a UiNode, placeholder: &str) -> Option<&'a Sele
             Some(input)
         }
         UiNode::SelectInput(_) => None,
-        UiNode::View(view) => view
-            .children
+        UiNode::Text(_) | UiNode::Button(_) | UiNode::TextInput(_) => None,
+        _ => node
+            .children()
             .iter()
             .find_map(|child| find_select_input(child, placeholder)),
-        UiNode::Text(_) | UiNode::Button(_) | UiNode::TextInput(_) => None,
     }
 }
 
@@ -178,10 +178,10 @@ fn find_button<'a>(node: &'a UiNode, label: &str) -> Option<&'a ButtonNode> {
     match node {
         UiNode::Button(button) if button.text == label => Some(button),
         UiNode::Button(_) => None,
-        UiNode::View(view) => view
-            .children
+        UiNode::Text(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => None,
+        _ => node
+            .children()
             .iter()
             .find_map(|child| find_button(child, label)),
-        UiNode::Text(_) | UiNode::TextInput(_) | UiNode::SelectInput(_) => None,
     }
 }
