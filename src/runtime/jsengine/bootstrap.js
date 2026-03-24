@@ -29,10 +29,157 @@ class CallbackRegistry {
     }
 }
 
+class PendingFetchRegistry {
+    constructor() {
+        this.requests = new Map();
+        this.nextId = 1;
+    }
+
+    register(record) {
+        const id = `fetch_${this.nextId++}`;
+        this.requests.set(id, record);
+        return id;
+    }
+
+    trigger(id, handler) {
+        const record = this.requests.get(id);
+        if (!record) {
+            return false;
+        }
+
+        this.requests.delete(id);
+        handler(record);
+        return true;
+    }
+}
+
 const GlobalCallbackRegistry = new CallbackRegistry();
+const PendingFetchRegistryInstance = new PendingFetchRegistry();
+
+function normalizeFetchHeaders(headers = {}) {
+    if (!headers) {
+        return {};
+    }
+
+    if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+        const normalized = {};
+
+        headers.forEach((value, key) => {
+            normalized[String(key)] = String(value);
+        });
+
+        return normalized;
+    }
+
+    if (headers instanceof Map) {
+        const normalized = {};
+
+        for (const [key, value] of headers.entries()) {
+            normalized[String(key)] = String(value);
+        }
+
+        return normalized;
+    }
+
+    if (Array.isArray(headers)) {
+        const normalized = {};
+
+        for (const entry of headers) {
+            if (!Array.isArray(entry) || entry.length < 2) {
+                continue;
+            }
+
+            const [key, value] = entry;
+            normalized[String(key)] = String(value);
+        }
+
+        return normalized;
+    }
+
+    if (typeof headers === 'object') {
+        const normalized = {};
+
+        for (const [key, value] of Object.entries(headers)) {
+            if (value === undefined || value === null) {
+                continue;
+            }
+
+            normalized[String(key)] = String(value);
+        }
+
+        return normalized;
+    }
+
+    return {};
+}
+
+function normalizeFetchBody(body, headers) {
+    if (body === undefined || body === null) {
+        return undefined;
+    }
+
+    if (typeof body === 'string') {
+        return body;
+    }
+
+    if (typeof body === 'object') {
+        if (!Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) {
+            headers['Content-Type'] = 'application/json';
+        }
+
+        return JSON.stringify(body);
+    }
+
+    return String(body);
+}
+
+function normalizeFetchError(error) {
+    if (error instanceof Error) {
+        return error;
+    }
+
+    if (typeof error === 'string') {
+        return new Error(error);
+    }
+
+    if (error && typeof error === 'object') {
+        const message = error.message ?? error.error ?? JSON.stringify(error);
+        const normalized = new Error(String(message));
+
+        if (error.name) {
+            normalized.name = String(error.name);
+        }
+
+        return normalized;
+    }
+
+    return new Error('Fetch request failed.');
+}
+
+function resolvePendingFetch(requestId, value) {
+    const handled = PendingFetchRegistryInstance.trigger(requestId, (record) =>
+        record.resolve(value)
+    );
+
+    if (!handled) {
+        console.warn(`Fetch request ${requestId} not found.`);
+    }
+}
+
+function rejectPendingFetch(requestId, error) {
+    const handled = PendingFetchRegistryInstance.trigger(requestId, (record) =>
+        record.reject(normalizeFetchError(error))
+    );
+
+    if (!handled) {
+        console.warn(`Fetch request ${requestId} not found.`);
+    }
+}
 
 globalThis.RustBridge = {
-    trigger: (id, payload) => GlobalCallbackRegistry.trigger(id, payload)
+    trigger: (id, payload) => GlobalCallbackRegistry.trigger(id, payload),
+    resolveFetch: resolvePendingFetch,
+    rejectFetch: rejectPendingFetch
 };
 
 if (!globalThis.console) {
@@ -45,6 +192,10 @@ if (!globalThis.console) {
 globalThis.__SEND_TO_RUST__ = (payload) => {
     __RUSTYJS_NATIVE_CAPTURE__(String(payload));
 };
+
+function dispatchToRust(payload) {
+    __SEND_TO_RUST__(JSON.stringify(payload));
+}
 
 function flattenChildren(target, value) {
     if (Array.isArray(value)) {
@@ -217,6 +368,26 @@ globalThis.Button = (props) => createNode('Button', props);
 globalThis.TextInput = (props) => createNode('TextInput', props);
 globalThis.SelectInput = (props) => createNode('SelectInput', props);
 globalThis.FlatList = (props) => createFlatList(props);
+
+globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
+    const requestId = PendingFetchRegistryInstance.register({
+        resolve,
+        reject
+    });
+
+    const normalizedHeaders = normalizeFetchHeaders(options.headers);
+    const normalizedBody = normalizeFetchBody(options.body, normalizedHeaders);
+    const method = String(options.method || 'GET').toUpperCase();
+
+    dispatchToRust({
+        action: 'FETCH_REQUEST',
+        requestId,
+        url: String(url),
+        method,
+        headers: normalizedHeaders,
+        ...(normalizedBody === undefined ? {} : { body: normalizedBody })
+    });
+});
 
 class AppEngine {
     constructor() {

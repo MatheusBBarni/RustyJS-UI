@@ -53,6 +53,7 @@ Available examples:
 - [examples/flex_form.js](examples/flex_form.js): centered form layout using web-style flex props
 - [examples/flat_list.js](examples/flat_list.js): renders repeated rows from array data with item-specific callbacks
 - [examples/task_form_flat_list.js](examples/task_form_flat_list.js): simple task form that adds, completes, and deletes items inside a FlatList
+- [examples/pokemon_fetch.js](examples/pokemon_fetch.js): fetches Pokemon details from PokeAPI using the new async `fetch` bridge
 
 Run any example directly:
 
@@ -82,6 +83,12 @@ Or use the helper script:
 
 ```sh
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-example.ps1
+```
+
+Or try the fetch example:
+
+```sh
+cargo run -- examples/pokemon_fetch.js
 ```
 
 ## Running Tests

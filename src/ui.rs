@@ -8,7 +8,9 @@ use crate::vdom::{
 };
 use iced::theme;
 use iced::widget::scrollable::{Direction, Properties};
-use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
+use iced::widget::{
+    button, column, container, pick_list, row, scrollable, text, text_input, Space,
+};
 use iced::{alignment, Alignment, Background, Color, Element, Length, Padding, Theme};
 use serde_json::Value;
 use std::rc::Rc;
