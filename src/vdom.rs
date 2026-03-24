@@ -1,6 +1,6 @@
-use crate::style::Style;
+use crate::style::{parse_color, Color as StyleColor, Style};
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use std::fmt;
 
@@ -42,7 +42,11 @@ impl<'de> Deserialize<'de> for CallbackRef {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireProps {
     #[serde(default)]
     pub style: Style,
@@ -62,6 +66,38 @@ pub struct WireProps {
     pub disabled: bool,
     #[serde(default)]
     pub multiline: bool,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default)]
+    pub transparent: bool,
+    #[serde(default, alias = "onRequestClose")]
+    pub on_request_close: Option<CallbackRef>,
+    #[serde(
+        default,
+        alias = "backdropColor",
+        deserialize_with = "deserialize_option_color_prop"
+    )]
+    pub backdrop_color: Option<StyleColor>,
+}
+
+impl Default for WireProps {
+    fn default() -> Self {
+        Self {
+            style: Style::default(),
+            text: None,
+            on_click: None,
+            on_change: None,
+            value: None,
+            placeholder: None,
+            options: Vec::new(),
+            disabled: false,
+            multiline: false,
+            visible: default_true(),
+            transparent: false,
+            on_request_close: None,
+            backdrop_color: None,
+        }
+    }
 }
 
 impl WireProps {
@@ -76,6 +112,7 @@ impl WireProps {
         self.on_click
             .as_ref()
             .or(self.on_change.as_ref())
+            .or(self.on_request_close.as_ref())
             .map(|callback| callback.id.as_str())
     }
 }
@@ -112,6 +149,7 @@ pub enum UiNode {
     Button(ButtonNode),
     TextInput(TextInputNode),
     SelectInput(SelectInputNode),
+    Modal(ModalNode),
 }
 
 impl UiNode {
@@ -123,6 +161,7 @@ impl UiNode {
             Self::Button(_) => "Button",
             Self::TextInput(_) => "TextInput",
             Self::SelectInput(_) => "SelectInput",
+            Self::Modal(_) => "Modal",
         }
     }
 
@@ -134,6 +173,7 @@ impl UiNode {
             Self::Button(node) => &node.style,
             Self::TextInput(node) => &node.style,
             Self::SelectInput(node) => &node.style,
+            Self::Modal(node) => &node.style,
         }
     }
 
@@ -141,6 +181,8 @@ impl UiNode {
         match self {
             Self::View(node) => &node.children,
             Self::FlatList(node) => &node.children,
+            Self::Modal(node) if node.visible => &node.children,
+            Self::Modal(_) => &[],
             Self::Text(_) => &[],
             Self::Button(_) => &[],
             Self::TextInput(_) => &[],
@@ -152,6 +194,8 @@ impl UiNode {
         match self {
             Self::View(node) => node.children,
             Self::FlatList(node) => node.children,
+            Self::Modal(node) if node.visible => node.children,
+            Self::Modal(_) => Vec::new(),
             Self::Text(_) | Self::Button(_) | Self::TextInput(_) | Self::SelectInput(_) => {
                 Vec::new()
             }
@@ -205,6 +249,18 @@ impl TryFrom<WireNode> for UiNode {
                 on_change: node.props.on_change,
                 style: node.props.style,
                 disabled: node.props.disabled,
+            })),
+            "Modal" => Ok(Self::Modal(ModalNode {
+                style: node.props.style,
+                children: node
+                    .children
+                    .into_iter()
+                    .map(UiNode::try_from)
+                    .collect::<Result<Vec<_>>>()?,
+                visible: node.props.visible,
+                transparent: node.props.transparent,
+                on_request_close: node.props.on_request_close,
+                backdrop_color: node.props.backdrop_color,
             })),
             other => Err(anyhow!("unsupported node type: {other}")),
         }
@@ -382,6 +438,29 @@ impl SelectInputNode {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModalNode {
+    pub style: Style,
+    pub children: Vec<UiNode>,
+    pub visible: bool,
+    pub transparent: bool,
+    pub on_request_close: Option<CallbackRef>,
+    pub backdrop_color: Option<StyleColor>,
+}
+
+impl ModalNode {
+    pub fn new(style: Style, children: Vec<UiNode>) -> Self {
+        Self {
+            style,
+            children,
+            visible: true,
+            transparent: false,
+            on_request_close: None,
+            backdrop_color: None,
+        }
+    }
+}
+
 impl From<ViewNode> for UiNode {
     fn from(node: ViewNode) -> Self {
         Self::View(node)
@@ -415,6 +494,24 @@ impl From<TextInputNode> for UiNode {
 impl From<SelectInputNode> for UiNode {
     fn from(node: SelectInputNode) -> Self {
         Self::SelectInput(node)
+    }
+}
+
+impl From<ModalNode> for UiNode {
+    fn from(node: ModalNode) -> Self {
+        Self::Modal(node)
+    }
+}
+
+fn deserialize_option_color_prop<'de, D>(deserializer: D) -> Result<Option<StyleColor>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(raw) => parse_color(raw).map(Some).map_err(de::Error::custom),
     }
 }
 
@@ -510,6 +607,48 @@ mod tests {
                 );
             }
             other => panic!("expected SelectInput node, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn modal_node_deserializes_into_typed_ui_node() {
+        let value = json!({
+            "type": "Modal",
+            "props": {
+                "visible": true,
+                "transparent": true,
+                "onRequestClose": "cb_11",
+                "backdropColor": "#112233AA",
+                "style": {
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                    "padding": 24
+                }
+            },
+            "children": [
+                {
+                    "type": "Text",
+                    "props": {
+                        "text": "Dialog"
+                    }
+                }
+            ]
+        });
+
+        let node = UiNode::try_from(value).unwrap();
+
+        match node {
+            UiNode::Modal(modal) => {
+                assert!(modal.visible);
+                assert!(modal.transparent);
+                assert_eq!(modal.on_request_close, Some(CallbackRef::new("cb_11")));
+                assert_eq!(
+                    modal.backdrop_color,
+                    Some(StyleColor::from_rgba8(0x11, 0x22, 0x33, 0xAA))
+                );
+                assert_eq!(modal.children.len(), 1);
+            }
+            other => panic!("expected Modal node, got {other:?}"),
         }
     }
 }

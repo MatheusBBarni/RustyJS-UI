@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::fs;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
@@ -96,7 +97,24 @@ impl JsRuntime {
         let bootstrap = jsengine::bootstrap();
         let mut initial_payloads =
             runtime.eval_script_with_path(bootstrap.source, Some(bootstrap.path))?;
-        initial_payloads.extend(runtime.eval_module_entry(entry_path)?);
+        let canonical_entry = entry_path
+            .canonicalize()
+            .with_context(|| format!("failed to read app entry `{}`", entry_path.display()))?;
+        let entry_source = fs::read_to_string(&canonical_entry).with_context(|| {
+            format!(
+                "failed to load app entry source `{}`",
+                canonical_entry.display()
+            )
+        })?;
+
+        if uses_static_esm_syntax(&entry_source) {
+            initial_payloads.extend(runtime.eval_module_entry(canonical_entry.as_path())?);
+        } else {
+            let entry_path = canonical_entry.to_string_lossy().into_owned();
+            initial_payloads
+                .extend(runtime.eval_script_with_path(&entry_source, Some(entry_path.as_str()))?);
+        }
+
         Ok((runtime, initial_payloads))
     }
 
@@ -338,6 +356,19 @@ fn default_fetch_method() -> String {
     "GET".to_string()
 }
 
+fn uses_static_esm_syntax(source: &str) -> bool {
+    source.lines().map(str::trim_start).any(|line| {
+        line.starts_with("import ")
+            || line.starts_with("import{")
+            || line.starts_with("import*")
+            || line.starts_with("import\"")
+            || line.starts_with("import'")
+            || line.starts_with("export ")
+            || line.starts_with("export{")
+            || line.starts_with("export*")
+    })
+}
+
 fn take_outbound_messages() -> Vec<String> {
     OUTBOUND_QUEUE.with(|queue| queue.borrow_mut().drain(..).collect::<Vec<_>>())
 }
@@ -548,5 +579,16 @@ App.run({
             }
             other => panic!("expected view tree payload, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn esm_detection_only_flags_static_imports_and_exports() {
+        assert!(!uses_static_esm_syntax(
+            "function AppLayout() {\n  return View({ children: [] });\n}\n"
+        ));
+        assert!(uses_static_esm_syntax(
+            "import { SaveButton } from './save_button.js';"
+        ));
+        assert!(uses_static_esm_syntax("export function SaveButton() {}"));
     }
 }

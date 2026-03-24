@@ -29,6 +29,7 @@ The current implementation includes:
   - `TextInput`
   - `SelectInput`
   - `FlatList` (native scrollable list with JS-side item expansion)
+  - `Modal` (native overlay rendered above the current tree)
 - Style support for common layout and text fields
 - Callback-based event dispatch from Rust back into JavaScript
 
@@ -38,7 +39,7 @@ At a high level, the flow looks like this:
 
 1. JavaScript calls `App.run(...)`.
 2. The runtime sends an `INIT_WINDOW` payload to Rust.
-3. The JavaScript `render` function returns a tree of nodes such as `View`, `Text`, `Button`, `TextInput`, and `SelectInput`.
+3. The JavaScript `render` function returns a tree of nodes such as `View`, `Text`, `Button`, `TextInput`, `SelectInput`, and `Modal`.
 4. That tree is serialized into an `UPDATE_VDOM` payload.
 5. Rust deserializes the payload into typed UI nodes and renders them with `iced`.
 6. When the user clicks a button or changes an input, Rust sends the callback ID back into the JS runtime.
@@ -54,6 +55,7 @@ Available examples:
 - [examples/flex_form.js](examples/flex_form.js): centered form layout using web-style flex props
 - [examples/flat_list.js](examples/flat_list.js): renders repeated rows from array data with item-specific callbacks
 - [examples/task_form_flat_list.js](examples/task_form_flat_list.js): simple task form that adds, completes, and deletes items inside a FlatList
+- [examples/modal.js](examples/modal.js): opens a native modal overlay and dismisses it with buttons or `Escape`
 - [examples/multi_file_save_button/main.js](examples/multi_file_save_button/main.js): imports a reusable `SaveButton` component from a sibling module
 - [examples/pokemon_fetch.js](examples/pokemon_fetch.js): fetches Pokemon details from PokeAPI using the new async `fetch` bridge
 
@@ -91,6 +93,12 @@ Or try the fetch example:
 
 ```sh
 cargo run -- examples/pokemon_fetch.js
+```
+
+Or try the modal example:
+
+```sh
+cargo run -- examples/modal.js
 ```
 
 Or run the multi-file example:
@@ -168,6 +176,66 @@ SelectInput({
     borderRadius: 8,
     borderColor: '#C7CDD4'
   }
+});
+```
+
+## Modal API
+
+`Modal` renders above the current tree using an `iced` overlay, similar to React Native's modal presentation model.
+
+Supported props:
+
+- `visible?: boolean` defaults to `true`
+- `transparent?: boolean` defaults to `false`
+- `onRequestClose?: () => void` fires when `Escape` is pressed while the modal is open
+- `backdropColor?: string | { red, green, blue, alpha }`
+- `style?: object` applied to the full-window modal container
+
+Behavior notes:
+
+- Modal content is rendered in a full-window container with `width: 'fill'` and `height: 'fill'`
+- When `transparent` is `false`, the modal uses `backdropColor` if provided, otherwise a white backdrop
+- Background content is blocked while a modal is visible
+
+Example:
+
+```js
+let visible = false;
+
+function openModal() {
+  visible = true;
+  App.requestRender();
+}
+
+function closeModal() {
+  visible = false;
+  App.requestRender();
+}
+
+Modal({
+  visible,
+  onRequestClose: closeModal,
+  backdropColor: '#00000059',
+  style: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24
+  },
+  children: [
+    View({
+      style: {
+        width: 360,
+        padding: 20,
+        gap: 12,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 18
+      },
+      children: [
+        Text({ text: 'Confirm action' }),
+        Button({ text: 'Close', onClick: closeModal })
+      ]
+    })
+  ]
 });
 ```
 
