@@ -6,9 +6,14 @@ Simple Bun API built with Elysia.
 
 - `POST /users` creates a user
 - `POST /login` returns a bearer token
+- `GET /admin/users` lists users
+- `POST /admin/users` creates a user while authenticated
+- `PUT /admin/users/:id` updates a user
+- `DELETE /admin/users/:id` deletes a user except the current session user
 - `GET /tasks` lists the current user's tasks
 - `POST /tasks` creates a task
 - `GET /tasks/:id` returns one task
+- `PUT /tasks/:id` updates a task
 - `PATCH /tasks/:id` updates a task
 - `DELETE /tasks/:id` deletes a task
 
