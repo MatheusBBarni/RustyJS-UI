@@ -59,6 +59,7 @@ Available examples:
 - [examples/modal.js](examples/modal.js): opens a native modal overlay and dismisses it with buttons or `Escape`
 - [examples/multi_file_save_button/main.js](examples/multi_file_save_button/main.js): imports a reusable `SaveButton` component from a sibling module
 - [examples/router_demo/main.js](examples/router_demo/main.js): multi-file route demo with path params, query parsing, and programmatic navigation
+- [examples/login-app/app/main.js](examples/login-app/app/main.js): routed login app with auth modals, protected task and user screens, fetch, `FlatList`, and `SelectInput`
 - [examples/pokemon_fetch.js](examples/pokemon_fetch.js): fetches Pokemon details from PokeAPI using the new async `fetch` bridge
 
 Run any example directly:
@@ -113,6 +114,12 @@ Or try the router example:
 
 ```sh
 cargo run -- examples/router_demo/main.js
+```
+
+Or run the login app example:
+
+```sh
+cargo run -- examples/login-app/app/main.js
 ```
 
 ## Multi-file ESM Apps
