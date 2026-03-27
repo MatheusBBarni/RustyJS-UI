@@ -100,7 +100,7 @@ where
             node.style.appearance.clone(),
         )));
 
-    wrap_with_container(widget.into(), &node.style, true, false)
+    wrap_with_container(widget.into(), &node.style, true, false, false)
 }
 
 fn render_modal<'a, Message>(
@@ -226,7 +226,7 @@ where
         content = content.style(Color::from(color));
     }
 
-    wrap_with_container(content.into(), &node.style, true, true)
+    wrap_with_container(content.into(), &node.style, true, true, true)
 }
 
 fn render_button<'a, Message>(
@@ -289,7 +289,7 @@ where
         }
     }
 
-    wrap_with_container(widget.into(), &node.style, false, false)
+    wrap_with_container(widget.into(), &node.style, false, true, false)
 }
 
 fn render_select_input<'a, Message>(
@@ -339,7 +339,7 @@ where
         widget = widget.placeholder(placeholder);
     }
 
-    wrap_with_container(widget.into(), &node.style, false, false)
+    wrap_with_container(widget.into(), &node.style, false, true, false)
 }
 
 fn render_select_input_display<'a, Message>(
@@ -381,7 +381,7 @@ where
     ])
     .align_items(Alignment::Center);
 
-    wrap_with_container(content.into(), &node.style, true, true)
+    wrap_with_container(content.into(), &node.style, true, true, true)
 }
 
 fn wrap_with_container<'a, Message>(
@@ -389,13 +389,14 @@ fn wrap_with_container<'a, Message>(
     style: &Style,
     apply_padding: bool,
     apply_size: bool,
+    apply_appearance: bool,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
 {
     let needs_container = apply_padding && style.layout.padding != EdgeInsets::ZERO
         || apply_size
-        || has_appearance(style);
+        || apply_appearance && has_appearance(style);
 
     if !needs_container {
         return content;
@@ -414,7 +415,7 @@ where
             .height(to_length(style.layout.height));
     }
 
-    if has_appearance(&style_snapshot) {
+    if apply_appearance && has_appearance(&style_snapshot) {
         wrapper = wrapper.style(move |_theme: &Theme| container::Appearance {
             text_color: style_snapshot.text.color.map(Color::from),
             background: style_snapshot
