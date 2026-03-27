@@ -29,6 +29,19 @@ export function FieldError(props = {}) {
 }
 
 export function TextField(props = {}) {
+    const inputStyle = {
+        width: props.inputWidth || 'fill',
+        padding: 12,
+        height: props.multiline ? undefined : props.inputHeight || 44,
+        borderWidth: 1,
+        borderRadius: 12,
+        borderColor: props.error ? '#D99A9A' : '#C7D2DE',
+        backgroundColor: props.backgroundColor || '#FFFFFF',
+        color: props.color || '#102033',
+        fontSize: props.fontSize || 15,
+        ...(props.inputStyle || {})
+    };
+
     return View({
         style: {
             width: props.width || 'fill',
@@ -44,16 +57,7 @@ export function TextField(props = {}) {
                 onChange: props.onChange,
                 disabled: Boolean(props.disabled),
                 multiline: Boolean(props.multiline),
-                style: {
-                    width: props.inputWidth || 'fill',
-                    padding: 12,
-                    borderWidth: 1,
-                    borderRadius: 12,
-                    borderColor: props.error ? '#D99A9A' : '#C7D2DE',
-                    backgroundColor: props.backgroundColor || '#FFFFFF',
-                    color: props.color || '#102033',
-                    ...(props.inputStyle || {})
-                }
+                style: inputStyle
             }),
             ...(props.hint ? [FieldHint({ text: props.hint })] : []),
             ...(props.error ? [FieldError({ text: props.error })] : [])
@@ -62,6 +66,19 @@ export function TextField(props = {}) {
 }
 
 export function SelectField(props = {}) {
+    const inputStyle = {
+        width: props.inputWidth || 'fill',
+        padding: 12,
+        height: props.inputHeight || 44,
+        borderWidth: 1,
+        borderRadius: 12,
+        borderColor: props.error ? '#D99A9A' : '#C7D2DE',
+        backgroundColor: props.backgroundColor || '#FFFFFF',
+        color: props.color || '#102033',
+        fontSize: props.fontSize || 15,
+        ...(props.inputStyle || {})
+    };
+
     return View({
         style: {
             width: props.width || 'fill',
@@ -77,16 +94,7 @@ export function SelectField(props = {}) {
                 options: Array.isArray(props.options) ? props.options : [],
                 onChange: props.onChange,
                 disabled: Boolean(props.disabled),
-                style: {
-                    width: props.inputWidth || 'fill',
-                    padding: 12,
-                    borderWidth: 1,
-                    borderRadius: 12,
-                    borderColor: props.error ? '#D99A9A' : '#C7D2DE',
-                    backgroundColor: props.backgroundColor || '#FFFFFF',
-                    color: props.color || '#102033',
-                    ...(props.inputStyle || {})
-                }
+                style: inputStyle
             }),
             ...(props.hint ? [FieldHint({ text: props.hint })] : []),
             ...(props.error ? [FieldError({ text: props.error })] : [])

@@ -1,4 +1,4 @@
-import { Badge, AppButton, Surface } from './components/index.js';
+import { Badge, AppButton, CardHeader, Surface } from './components/index.js';
 import { LandingScreen } from './screens/landing.js';
 import { NotFoundScreen } from './screens/not-found.js';
 import { TaskDetailScreen } from './screens/task-detail.js';
