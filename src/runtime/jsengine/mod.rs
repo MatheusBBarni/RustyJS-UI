@@ -43,7 +43,7 @@ mod tests {
     fn bootstrap_keeps_recent_callback_generations() {
         let source = bootstrap().source;
         assert!(source.contains("beginRender()"));
-        assert!(source.contains("clearStale(maxGenerations = 8)"));
+        assert!(source.contains("clearStale(maxGenerations = 256)"));
         assert!(source.contains("GlobalCallbackRegistry.beginRender();"));
         assert!(source.contains("GlobalCallbackRegistry.clearStale();"));
     }

@@ -41,7 +41,9 @@ class CallbackRegistry {
         fn(payload);
     }
 
-    clearStale(maxGenerations = 8) {
+    // Native input can still deliver events from an older widget generation
+    // while the app is already rendering newer controlled values.
+    clearStale(maxGenerations = 256) {
         while (this.generations.length > maxGenerations) {
             const staleGeneration = this.generations.shift();
 
