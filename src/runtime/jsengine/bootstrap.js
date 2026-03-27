@@ -1,7 +1,19 @@
 class CallbackRegistry {
     constructor() {
         this.callbacks = new Map();
+        this.generations = [];
+        this.currentGeneration = null;
         this.nextId = 1;
+    }
+
+    beginRender() {
+        const generation = {
+            id: this.nextId,
+            callbacks: []
+        };
+
+        this.currentGeneration = generation;
+        this.generations.push(generation);
     }
 
     register(fn) {
@@ -11,6 +23,11 @@ class CallbackRegistry {
 
         const id = `cb_${this.nextId++}`;
         this.callbacks.set(id, fn);
+
+        if (this.currentGeneration) {
+            this.currentGeneration.callbacks.push(id);
+        }
+
         return id;
     }
 
@@ -24,8 +41,18 @@ class CallbackRegistry {
         fn(payload);
     }
 
-    clear() {
-        this.callbacks.clear();
+    clearStale(maxGenerations = 8) {
+        while (this.generations.length > maxGenerations) {
+            const staleGeneration = this.generations.shift();
+
+            if (!staleGeneration) {
+                return;
+            }
+
+            for (const id of staleGeneration.callbacks) {
+                this.callbacks.delete(id);
+            }
+        }
     }
 }
 
@@ -698,7 +725,7 @@ class AppEngine {
 
     executeRender() {
         try {
-            GlobalCallbackRegistry.clear();
+            GlobalCallbackRegistry.beginRender();
 
             const vdomTree = this.rootRenderFn();
 
@@ -707,6 +734,7 @@ class AppEngine {
                 tree: vdomTree
             }));
         } finally {
+            GlobalCallbackRegistry.clearStale();
             this.isRenderPending = false;
         }
     }

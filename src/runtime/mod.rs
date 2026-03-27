@@ -526,6 +526,70 @@ App.run({
     }
 
     #[test]
+    fn previous_generation_text_input_callback_remains_valid() {
+        let mut runtime = JsRuntime::new().unwrap();
+        let bootstrap = jsengine::bootstrap();
+
+        assert!(runtime
+            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
+            .unwrap()
+            .is_empty());
+
+        let initial_payloads = runtime
+            .eval_script(
+                r#"
+let value = '';
+
+function handleChange(nextValue) {
+    value = nextValue;
+    App.requestRender();
+}
+
+function AppLayout() {
+    return TextInput({
+        value,
+        placeholder: 'Type here',
+        onChange: handleChange
+    });
+}
+
+App.run({
+    title: 'Input Callback Test',
+    render: AppLayout
+});
+"#,
+            )
+            .unwrap();
+
+        let initial_callback_id = match initial_payloads[1].typed_tree().unwrap() {
+            Some(UiNode::TextInput(input)) => input
+                .on_change
+                .as_ref()
+                .map(|callback| callback.id.clone())
+                .expect("expected text input callback"),
+            other => panic!("expected text input tree payload, got {other:?}"),
+        };
+
+        let first_update = runtime
+            .trigger_callback(&initial_callback_id, Value::String("a".to_string()))
+            .unwrap();
+
+        match first_update[0].typed_tree().unwrap() {
+            Some(UiNode::TextInput(input)) => assert_eq!(input.value, "a"),
+            other => panic!("expected text input tree payload, got {other:?}"),
+        }
+
+        let second_update = runtime
+            .trigger_callback(&initial_callback_id, Value::String("ab".to_string()))
+            .unwrap();
+
+        match second_update[0].typed_tree().unwrap() {
+            Some(UiNode::TextInput(input)) => assert_eq!(input.value, "ab"),
+            other => panic!("expected text input tree payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn bootstrap_normalizes_web_flex_style_aliases() {
         let mut runtime = JsRuntime::new().unwrap();
         let bootstrap = jsengine::bootstrap();

@@ -40,6 +40,15 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_keeps_recent_callback_generations() {
+        let source = bootstrap().source;
+        assert!(source.contains("beginRender()"));
+        assert!(source.contains("clearStale(maxGenerations = 8)"));
+        assert!(source.contains("GlobalCallbackRegistry.beginRender();"));
+        assert!(source.contains("GlobalCallbackRegistry.clearStale();"));
+    }
+
+    #[test]
     fn bootstrap_defends_pending_state_on_render_errors() {
         let source = bootstrap().source;
         assert!(source.contains("finally {"));
