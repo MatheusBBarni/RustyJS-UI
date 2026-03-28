@@ -14,7 +14,7 @@ import {
     ensureTaskDetail,
     isAuthenticated,
     loadTaskDetail,
-    removeTask,
+    requestTaskRemoval,
     saveTaskDetail,
     setTaskDetailField,
     state
@@ -202,7 +202,7 @@ function buildEditorActions(task, route, isEditMode) {
             size: 'sm',
             variant: 'danger',
             disabled: state.loading.deletingTaskId === task.id,
-            onClick: () => removeTask(task.id, route, '/tasks')
+            onClick: () => requestTaskRemoval(task.id, route, '/tasks')
         })
     );
 

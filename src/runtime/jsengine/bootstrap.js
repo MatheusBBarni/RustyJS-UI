@@ -84,6 +84,9 @@ class PendingFetchRegistry {
 
 const GlobalCallbackRegistry = new CallbackRegistry();
 const PendingFetchRegistryInstance = new PendingFetchRegistry();
+const AlertState = {
+    current: null
+};
 
 function normalizeFetchHeaders(headers = {}) {
     if (!headers) {
@@ -335,6 +338,133 @@ function createFlatList(props = {}) {
             View({
                 style: resolveFlatListContentStyle(contentContainerStyle, horizontal),
                 children: listChildren
+            })
+        ]
+    });
+}
+
+function createAlert(props = {}) {
+    const {
+        title = '',
+        description = '',
+        primaryButtonText = 'OK',
+        primaryButtonOnClick,
+        secondaryButtonText = 'Cancel',
+        secondaryButtonOnClick,
+        style,
+        titleStyle,
+        descriptionStyle,
+        buttonContainerStyle,
+        primaryButtonStyle,
+        secondaryButtonStyle
+    } = props;
+
+    return View({
+        style: {
+            direction: 'column',
+            gap: 12,
+            padding: 16,
+            borderWidth: 1,
+            borderColor: '#D6D6D6',
+            borderRadius: 10,
+            ...style
+        },
+        children: [
+            Text({
+                text: String(title),
+                style: {
+                    fontSize: 20,
+                    ...titleStyle
+                }
+            }),
+            Text({
+                text: String(description),
+                style: {
+                    color: '#5A5A5A',
+                    ...descriptionStyle
+                }
+            }),
+            View({
+                style: {
+                    direction: 'row',
+                    gap: 10,
+                    justifyContent: 'flex-end',
+                    ...buttonContainerStyle
+                },
+                children: [
+                    Button({
+                        text: String(secondaryButtonText),
+                        onClick: secondaryButtonOnClick,
+                        style: {
+                            padding: 10,
+                            ...secondaryButtonStyle
+                        }
+                    }),
+                    Button({
+                        text: String(primaryButtonText),
+                        onClick: primaryButtonOnClick,
+                        style: {
+                            padding: 10,
+                            ...primaryButtonStyle
+                        }
+                    })
+                ]
+            })
+        ]
+    });
+}
+
+function dismissAlert() {
+    AlertState.current = null;
+}
+
+function triggerAlert(props = {}) {
+    AlertState.current = props;
+
+    if (globalThis.App && typeof globalThis.App.requestRender === 'function') {
+        globalThis.App.requestRender();
+    }
+}
+
+function renderActiveAlert() {
+    if (!AlertState.current) {
+        return null;
+    }
+
+    const config = AlertState.current;
+
+    const onClose = () => {
+        dismissAlert();
+        if (typeof config.onClose === 'function') {
+            config.onClose();
+        }
+        globalThis.App.requestRender();
+    };
+
+    const secondaryButtonOnClick = () => {
+        dismissAlert();
+        if (typeof config.secondaryButtonOnClick === 'function') {
+            config.secondaryButtonOnClick();
+        }
+        globalThis.App.requestRender();
+    };
+
+    const primaryButtonOnClick = () => {
+        dismissAlert();
+        if (typeof config.primaryButtonOnClick === 'function') {
+            config.primaryButtonOnClick();
+        }
+        globalThis.App.requestRender();
+    };
+
+    return Modal({
+        visible: true,
+        onClose,
+        children: [
+            createAlert({
+                ...config,
+                secondaryButtonOnClick,
+                primaryButtonOnClick
             })
         ]
     });
@@ -669,6 +799,7 @@ globalThis.TextInput = (props) => createNode('TextInput', props);
 globalThis.SelectInput = (props) => createNode('SelectInput', props);
 globalThis.FlatList = (props) => createFlatList(props);
 globalThis.Modal = (props) => createNode('Modal', props);
+globalThis.Alert = (props) => triggerAlert(props);
 
 globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
     const requestId = PendingFetchRegistryInstance.register({
@@ -730,10 +861,20 @@ class AppEngine {
             GlobalCallbackRegistry.beginRender();
 
             const vdomTree = this.rootRenderFn();
+            const alertNode = renderActiveAlert();
+            const tree = alertNode
+                ? View({
+                    style: {
+                        width: 'fill',
+                        height: 'fill'
+                    },
+                    children: [vdomTree, alertNode]
+                })
+                : vdomTree;
 
             __SEND_TO_RUST__(JSON.stringify({
                 action: 'UPDATE_VDOM',
-                tree: vdomTree
+                tree
             }));
         } finally {
             GlobalCallbackRegistry.clearStale();

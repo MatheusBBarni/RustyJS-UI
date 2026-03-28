@@ -16,7 +16,7 @@ import {
     ensureTasksLoaded,
     isAuthenticated,
     refreshTasks,
-    removeTask,
+    requestTaskRemoval,
     setTaskComposerField,
     setTaskFilter,
     state
@@ -53,7 +53,7 @@ function TaskRow(route, task) {
                 size: 'sm',
                 variant: 'danger',
                 disabled: state.loading.deletingTaskId === task.id,
-                onClick: () => removeTask(task.id)
+                onClick: () => requestTaskRemoval(task.id)
             })
         ]
     });

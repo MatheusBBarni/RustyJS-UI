@@ -17,7 +17,7 @@ import {
     isAuthenticated,
     openUserModal,
     refreshUsers,
-    removeUser,
+    requestUserRemoval,
     saveUserModal,
     setUserFilter,
     setUserFormField,
@@ -55,7 +55,7 @@ function UserRow(user) {
                 size: 'sm',
                 variant: isCurrentUser ? 'ghost' : 'danger',
                 disabled: isCurrentUser || state.loading.deletingUserId === user.id,
-                onClick: () => removeUser(user.id)
+                onClick: () => requestUserRemoval(user.id)
             })
         ]
     });

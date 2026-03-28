@@ -4,7 +4,7 @@ import { NotFoundScreen } from './screens/not-found.js';
 import { TaskDetailScreen } from './screens/task-detail.js';
 import { TasksScreen } from './screens/tasks.js';
 import { UsersScreen } from './screens/users.js';
-import { clearNotice, isAuthenticated, logout, state } from './state/app-state.js';
+import { clearNotice, isAuthenticated, requestLogout, state } from './state/app-state.js';
 
 const router = App.createRouter({
     initialPath: '/',
@@ -128,7 +128,7 @@ function TopBar() {
                 text: 'Logout',
                 size: 'sm',
                 variant: 'secondary',
-                onClick: () => logout(router)
+                onClick: () => requestLogout(router)
             })
         );
     }

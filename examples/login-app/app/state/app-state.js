@@ -115,6 +115,25 @@ function currentUserId() {
   return state.session.user?.id || '';
 }
 
+function showConfirmationAlert({
+  title,
+  description,
+  confirmText = 'Confirm',
+  onConfirm
+}) {
+  Alert({
+    title,
+    description,
+    primaryButtonText: confirmText,
+    primaryButtonOnClick: () => {
+      if (typeof onConfirm === 'function') {
+        onConfirm();
+      }
+    },
+    secondaryButtonText: 'Cancel'
+  });
+}
+
 export const state = {
   session: {
     token: '',
@@ -345,6 +364,19 @@ export function logout(route) {
   rerender();
 }
 
+export function requestLogout(route) {
+  if (!isAuthenticated()) {
+    return;
+  }
+
+  showConfirmationAlert({
+    title: 'Sign out?',
+    description: 'You will return to the landing page and protected data will reset.',
+    confirmText: 'Sign out',
+    onConfirm: () => logout(route)
+  });
+}
+
 export function ensureTasksLoaded() {
   if (!currentToken() || state.loading.tasks || state.loaded.tasksToken === currentToken()) {
     return;
@@ -567,6 +599,20 @@ export async function removeTask(taskId, route, nextPath = '') {
   }
 }
 
+export function requestTaskRemoval(taskId, route, nextPath = '') {
+  const task = state.tasks.find((item) => item.id === taskId) || state.taskDetail;
+  const taskName = task?.title || 'this task';
+
+  showConfirmationAlert({
+    title: 'Delete task?',
+    description: `This permanently deletes "${taskName}". This action cannot be undone.`,
+    confirmText: 'Delete',
+    onConfirm: () => {
+      void removeTask(taskId, route, nextPath);
+    }
+  });
+}
+
 export function ensureUsersLoaded() {
   if (!currentToken() || state.loading.users || state.loaded.usersToken === currentToken()) {
     return;
@@ -699,4 +745,24 @@ export async function removeUser(userId) {
     state.loading.deletingUserId = '';
     rerender();
   }
+}
+
+export function requestUserRemoval(userId) {
+  if (userId === currentUserId()) {
+    applyNotice('error', 'A user cannot delete itself.');
+    rerender();
+    return;
+  }
+
+  const target = state.users.find((user) => user.id === userId);
+  const label = target ? `${target.name} (${target.email})` : 'this user';
+
+  showConfirmationAlert({
+    title: 'Delete user?',
+    description: `This permanently deletes ${label}. This action cannot be undone.`,
+    confirmText: 'Delete',
+    onConfirm: () => {
+      void removeUser(userId);
+    }
+  });
 }
