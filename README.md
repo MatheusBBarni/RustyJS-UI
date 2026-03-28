@@ -141,7 +141,8 @@ import { SaveButton } from './save_button.js';
 
 Current module-loading rules:
 
-- Only relative `./` and `../` imports are supported
+- Relative `./` and `../` imports are supported for local modules
+- The built-in package specifier `RustyJS-UI` is supported for component imports (`import { Button } from 'RustyJS-UI'`)
 - Import specifiers must include the `.js` extension
 - Imports are resolved relative to the importing file and must stay inside the entry file's root directory
 - Existing single-file apps still work unchanged
