@@ -12,6 +12,7 @@ pub(crate) struct AppModuleLoader {
     app_root: RefCell<Option<PathBuf>>,
     modules_by_path: RefCell<HashMap<PathBuf, Module>>,
     module_paths: RefCell<HashMap<Module, PathBuf>>,
+    package_modules: RefCell<HashMap<String, Module>>,
 }
 
 impl AppModuleLoader {
@@ -61,6 +62,7 @@ impl AppModuleLoader {
         *self.app_root.borrow_mut() = Some(app_root);
         self.modules_by_path.borrow_mut().clear();
         self.module_paths.borrow_mut().clear();
+        self.package_modules.borrow_mut().clear();
     }
 
     fn cache_module(&self, path: PathBuf, module: Module) {
@@ -79,6 +81,10 @@ impl AppModuleLoader {
         let specifier = specifier
             .to_std_string()
             .map_err(|error| JsNativeError::typ().with_message(error.to_string()))?;
+        if let Some(module) = self.load_builtin_package_module(&specifier, context)? {
+            return Ok(module);
+        }
+
         let (importer_path, importer_label) = self.resolve_importer(referrer)?;
         let resolved_path =
             self.resolve_import_path(importer_path.as_deref(), &importer_label, &specifier)?;
@@ -101,6 +107,33 @@ impl AppModuleLoader {
         self.cache_module(resolved_path, module.clone());
 
         Ok(module)
+    }
+
+    fn load_builtin_package_module(
+        &self,
+        specifier: &str,
+        context: &mut BoaContext<'_>,
+    ) -> JsResult<Option<Module>> {
+        if specifier != "RustyJS-UI" {
+            return Ok(None);
+        }
+
+        if let Some(module) = self.package_modules.borrow().get(specifier).cloned() {
+            return Ok(Some(module));
+        }
+
+        let module = Module::parse(Source::from_bytes(BUILTIN_RUSTYJS_UI_MODULE), None, context)
+            .map_err(|error| {
+                JsNativeError::syntax().with_message(format!(
+                    "failed to parse built-in package `{specifier}`: {error}"
+                ))
+            })?;
+
+        self.package_modules
+            .borrow_mut()
+            .insert(specifier.to_string(), module.clone());
+
+        Ok(Some(module))
     }
 
     fn resolve_importer(&self, referrer: &Referrer) -> JsResult<(Option<PathBuf>, String)> {
@@ -178,6 +211,20 @@ impl AppModuleLoader {
         })
     }
 }
+
+const BUILTIN_RUSTYJS_UI_MODULE: &str = r#"
+const App = globalThis.App;
+const View = globalThis.View;
+const Text = globalThis.Text;
+const Button = globalThis.Button;
+const TextInput = globalThis.TextInput;
+const SelectInput = globalThis.SelectInput;
+const FlatList = globalThis.FlatList;
+const Modal = globalThis.Modal;
+const fetch = globalThis.fetch;
+
+export { App, View, Text, Button, TextInput, SelectInput, FlatList, Modal, fetch };
+"#;
 
 impl ModuleLoader for AppModuleLoader {
     fn load_imported_module(

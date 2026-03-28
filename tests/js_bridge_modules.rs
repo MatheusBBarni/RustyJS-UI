@@ -55,6 +55,30 @@ fn repeated_imports_share_one_cached_module_instance() {
 }
 
 #[test]
+fn module_entry_imports_rustyjs_ui_package() {
+    let (_runtime, payloads) = JsRuntime::startup_with_app_entry(&fixture_path(
+        "tests/fixtures/esm/package_import/main.js",
+    ))
+    .unwrap();
+
+    assert_eq!(payloads.len(), 2);
+    assert!(matches!(
+        &payloads[0],
+        BridgePayload::InitWindow {
+            title,
+            width: 480,
+            height: 320
+        } if title == "Package Import Fixture"
+    ));
+
+    let tree = payloads[1].typed_tree().unwrap().unwrap();
+    let texts = collect_texts(&tree);
+
+    assert!(texts.iter().any(|text| *text == "Package import fixture"));
+    assert!(find_button(&tree, "Save package import").is_some());
+}
+
+#[test]
 fn missing_import_reports_specifier_and_importer() {
     let error = JsRuntime::startup_with_app_entry(&fixture_path(
         "tests/fixtures/esm/errors/missing_import/main.js",
