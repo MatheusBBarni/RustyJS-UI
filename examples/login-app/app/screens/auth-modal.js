@@ -39,12 +39,13 @@ export function AuthModal(props = {}) {
                 label: 'Password',
                 value: props.draft.password,
                 placeholder: 'Password',
+                type: 'password',
                 onChange: props.onPasswordChange
             }),
             FieldHint({
                 text: props.mode === 'register'
                     ? 'Registration also signs you in.'
-                    : 'Passwords are visible in this runtime today, so use a throwaway demo password.'
+                    : 'Use the password for an account you already created in the app.'
             }),
             DialogActions({
                 cancelText: 'Cancel',

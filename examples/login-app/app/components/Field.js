@@ -54,6 +54,7 @@ export function TextField(props = {}) {
             TextInput({
                 value: props.value || '',
                 placeholder: props.placeholder || '',
+                type: props.type,
                 onChange: props.onChange,
                 disabled: Boolean(props.disabled),
                 multiline: Boolean(props.multiline),
