@@ -75,7 +75,10 @@ fn module_entry_imports_rustyjs_ui_package() {
     let texts = collect_texts(&tree);
 
     assert!(texts.iter().any(|text| *text == "Package import fixture"));
-    assert!(find_button(&tree, "Save package import").is_some());
+    assert!(texts.iter().any(|text| *text == "Delete task?"));
+    assert!(texts.iter().any(|text| *text == "This action cannot be undone."));
+    assert!(find_button(&tree, "Delete").is_some());
+    assert!(find_button(&tree, "Cancel").is_some());
 }
 
 #[test]

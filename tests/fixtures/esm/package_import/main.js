@@ -1,4 +1,17 @@
-import { App, View, Text, Button } from 'RustyJS-UI';
+import { App, View, Text, Alert } from 'RustyJS-UI';
+
+function calcHeight() {
+    Alert({
+        title: 'Delete task?',
+        description: 'This action cannot be undone.',
+        primaryButtonText: 'Delete',
+        primaryButtonOnClick: () => {},
+        secondaryButtonText: 'Cancel',
+        secondaryButtonOnClick: () => {}
+    });
+}
+
+calcHeight();
 
 function PackageImportScreen() {
     return View({
@@ -8,8 +21,7 @@ function PackageImportScreen() {
             padding: 20
         },
         children: [
-            Text({ text: 'Package import fixture' }),
-            Button({ text: 'Save package import' })
+            Text({ text: 'Package import fixture' })
         ]
     });
 }

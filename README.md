@@ -31,6 +31,7 @@ The current implementation includes:
   - `SelectInput`
   - `FlatList` (native scrollable list with JS-side item expansion)
   - `Modal` (native overlay rendered above the current tree)
+  - `Alert` (imperative helper that shows a modal alert with title, description, and two action buttons)
 - Style support for common layout and text fields
 - Callback-based event dispatch from Rust back into JavaScript
 
@@ -146,6 +147,23 @@ Current module-loading rules:
 - Import specifiers must include the `.js` extension
 - Imports are resolved relative to the importing file and must stay inside the entry file's root directory
 - Existing single-file apps still work unchanged
+
+Imperative alert example:
+
+```js
+import { Alert } from 'RustyJS-UI';
+
+function calcHeight() {
+  Alert({
+    title: 'Recalculate layout?',
+    description: 'This action may reset your current draft.',
+    primaryButtonText: 'Continue',
+    primaryButtonOnClick: () => {},
+    secondaryButtonText: 'Cancel',
+    secondaryButtonOnClick: () => {}
+  });
+}
+```
 
 ## Routing API
 
