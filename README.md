@@ -31,6 +31,7 @@ The current implementation includes:
   - `SelectInput`
   - `FlatList` (native scrollable list with JS-side item expansion)
   - `Modal` (native overlay rendered above the current tree)
+  - `Alert` (imperative helper that shows a modal alert with title, description, and two action buttons)
 - Style support for common layout and text fields
 - Callback-based event dispatch from Rust back into JavaScript
 
@@ -59,7 +60,7 @@ Available examples:
 - [examples/modal.js](examples/modal.js): opens a native modal overlay and dismisses it with buttons or `Escape`
 - [examples/multi_file_save_button/main.js](examples/multi_file_save_button/main.js): imports a reusable `SaveButton` component from a sibling module
 - [examples/router_demo/main.js](examples/router_demo/main.js): multi-file route demo with path params, query parsing, and programmatic navigation
-- [examples/login-app/app/main.js](examples/login-app/app/main.js): routed login app with auth modals, protected task and user screens, fetch, `FlatList`, and `SelectInput`
+- [examples/login-app/app/main.js](examples/login-app/app/main.js): routed login app with auth modals, protected task and user screens, fetch, `FlatList`, `SelectInput`, and imperative `Alert` confirmations for destructive actions
 - [examples/pokemon_fetch.js](examples/pokemon_fetch.js): fetches Pokemon details from PokeAPI using the new async `fetch` bridge
 
 Run any example directly:
@@ -141,10 +142,28 @@ import { SaveButton } from './save_button.js';
 
 Current module-loading rules:
 
-- Only relative `./` and `../` imports are supported
+- Relative `./` and `../` imports are supported for local modules
+- The built-in package specifier `RustyJS-UI` is supported for component imports (`import { Button } from 'RustyJS-UI'`)
 - Import specifiers must include the `.js` extension
 - Imports are resolved relative to the importing file and must stay inside the entry file's root directory
 - Existing single-file apps still work unchanged
+
+Imperative alert example:
+
+```js
+import { Alert } from 'RustyJS-UI';
+
+function calcHeight() {
+  Alert({
+    title: 'Recalculate layout?',
+    description: 'This action may reset your current draft.',
+    primaryButtonText: 'Continue',
+    primaryButtonOnClick: () => {},
+    secondaryButtonText: 'Cancel',
+    secondaryButtonOnClick: () => {}
+  });
+}
+```
 
 ## Routing API
 
