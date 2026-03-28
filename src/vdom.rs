@@ -46,6 +46,34 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextInputType {
+    #[default]
+    Text,
+    Password,
+}
+
+impl TextInputType {
+    pub fn is_password(self) -> bool {
+        matches!(self, Self::Password)
+    }
+}
+
+impl<'de> Deserialize<'de> for TextInputType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Option::<Value>::deserialize(deserializer)?;
+
+        Ok(match value {
+            Some(Value::String(kind)) if kind.eq_ignore_ascii_case("password") => Self::Password,
+            _ => Self::Text,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WireProps {
     #[serde(default)]
@@ -60,6 +88,8 @@ pub struct WireProps {
     pub value: Option<String>,
     #[serde(default)]
     pub placeholder: Option<String>,
+    #[serde(default, rename = "type")]
+    pub input_type: TextInputType,
     #[serde(default)]
     pub options: Vec<SelectOption>,
     #[serde(default)]
@@ -89,6 +119,7 @@ impl Default for WireProps {
             on_change: None,
             value: None,
             placeholder: None,
+            input_type: TextInputType::default(),
             options: Vec::new(),
             disabled: false,
             multiline: false,
@@ -241,6 +272,7 @@ impl TryFrom<WireNode> for UiNode {
                 style: node.props.style,
                 disabled: node.props.disabled,
                 multiline: node.props.multiline,
+                input_type: node.props.input_type,
             })),
             "SelectInput" => Ok(Self::SelectInput(SelectInputNode {
                 value: node.props.value.unwrap_or_default(),
@@ -341,6 +373,7 @@ pub struct TextInputNode {
     pub style: Style,
     pub disabled: bool,
     pub multiline: bool,
+    pub input_type: TextInputType,
 }
 
 impl TextInputNode {
@@ -352,6 +385,7 @@ impl TextInputNode {
             style,
             disabled: false,
             multiline: false,
+            input_type: TextInputType::default(),
         }
     }
 }
@@ -564,6 +598,31 @@ mod tests {
                 assert!(!button.disabled);
             }
             other => panic!("expected Button node, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn password_text_input_type_deserializes_into_typed_ui_node() {
+        let value = json!({
+            "type": "TextInput",
+            "props": {
+                "value": "secret123",
+                "placeholder": "Password",
+                "type": "password",
+                "onChange": "cb_5"
+            }
+        });
+
+        let node = UiNode::try_from(value).unwrap();
+
+        match node {
+            UiNode::TextInput(input) => {
+                assert_eq!(input.value, "secret123");
+                assert_eq!(input.placeholder.as_deref(), Some("Password"));
+                assert_eq!(input.on_change, Some(CallbackRef::new("cb_5")));
+                assert_eq!(input.input_type, TextInputType::Password);
+            }
+            other => panic!("expected TextInput node, got {other:?}"),
         }
     }
 

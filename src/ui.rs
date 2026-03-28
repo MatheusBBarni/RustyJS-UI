@@ -286,6 +286,10 @@ where
             node.style.text.color,
         ))));
 
+    if node.input_type.is_password() {
+        widget = widget.password();
+    }
+
     if !node.disabled {
         if let Some(callback) = &node.on_change {
             let callback_id = callback.id.clone();

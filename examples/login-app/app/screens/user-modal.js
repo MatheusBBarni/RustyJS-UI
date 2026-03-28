@@ -32,6 +32,7 @@ export function UserModal(props = {}) {
                 label: props.mode === 'create' ? 'Password' : 'Password (leave blank to keep current)',
                 value: props.draft.password,
                 placeholder: props.mode === 'create' ? 'Password' : 'Leave blank',
+                type: 'password',
                 onChange: props.onPasswordChange
             }),
             FieldHint({

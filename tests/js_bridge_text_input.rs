@@ -1,6 +1,6 @@
 use rustyjs_ui::bridge::BridgePayload;
 use rustyjs_ui::runtime::JsRuntime;
-use rustyjs_ui::vdom::{TextInputNode, TextNode, UiNode};
+use rustyjs_ui::vdom::{TextInputNode, TextInputType, TextNode, UiNode};
 use serde_json::Value;
 
 const TEXT_INPUT_APP: &str = include_str!("../examples/text_input_echo.js");
@@ -57,6 +57,36 @@ fn text_input_change_re_renders_example() {
 
     assert_eq!(updated_input.value, "RustyJS");
     assert!(texts.iter().any(|text| *text == "Current value: RustyJS"));
+}
+
+#[test]
+fn text_input_password_type_round_trips_from_javascript() {
+    let mut runtime = boot_runtime();
+    let payloads = runtime
+        .eval_script(
+            r#"
+function AppLayout() {
+    return TextInput({
+        value: 'secret123',
+        placeholder: 'Password',
+        type: 'password'
+    });
+}
+
+App.run({
+    title: 'Password Input',
+    render: AppLayout
+});
+"#,
+        )
+        .unwrap();
+
+    let tree = payloads[1].typed_tree().unwrap().unwrap();
+    let input = find_text_input(&tree).expect("expected TextInput node");
+
+    assert_eq!(input.value, "secret123");
+    assert_eq!(input.placeholder.as_deref(), Some("Password"));
+    assert_eq!(input.input_type, TextInputType::Password);
 }
 
 fn boot_runtime() -> JsRuntime {
