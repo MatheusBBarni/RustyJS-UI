@@ -649,4 +649,97 @@ App.run({
         ));
         assert!(uses_static_esm_syntax("export function SaveButton() {}"));
     }
+
+    #[test]
+    fn use_state_setter_re_renders_without_manual_request_render() {
+        let mut runtime = JsRuntime::new().unwrap();
+        let bootstrap = jsengine::bootstrap();
+
+        assert!(runtime
+            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
+            .unwrap()
+            .is_empty());
+        runtime
+            .eval_script(
+                r#"
+function CounterApp() {
+    const { state: count, setState: setCount } = useState(0);
+
+    return Button({
+        text: `Count is: ${count}`,
+        onClick: () => setCount((prev) => prev + 1)
+    });
+}
+
+App.run({
+    title: 'Hook Counter',
+    render: CounterApp
+});
+"#,
+            )
+            .unwrap();
+
+        let payloads = runtime.trigger_callback("cb_1", Value::Null).unwrap();
+
+        assert_eq!(payloads.len(), 1);
+
+        match payloads[0].typed_tree().unwrap() {
+            Some(UiNode::Button(button)) => assert_eq!(button.text, "Count is: 1"),
+            other => panic!("expected button tree payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn use_effect_runs_on_first_render_and_when_dependencies_change() {
+        let mut runtime = JsRuntime::new().unwrap();
+        let bootstrap = jsengine::bootstrap();
+
+        assert!(runtime
+            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
+            .unwrap()
+            .is_empty());
+        runtime
+            .eval_script(
+                r#"
+let effectRuns = 0;
+
+function EffectApp() {
+    const { state: value, setState } = useState(0);
+
+    useEffect(() => {
+        effectRuns += 1;
+    }, [value]);
+
+    return Button({
+        text: `Value: ${value} / EffectRuns: ${effectRuns}`,
+        onClick: () => setState(value + 1)
+    });
+}
+
+App.run({
+    title: 'Effect Test',
+    render: EffectApp
+});
+"#,
+            )
+            .unwrap();
+
+        let first_update = runtime.trigger_callback("cb_1", Value::Null).unwrap();
+
+        match first_update[0].typed_tree().unwrap() {
+            Some(UiNode::Button(button)) => {
+                assert_eq!(button.text, "Value: 1 / EffectRuns: 1")
+            }
+            other => panic!("expected button tree payload, got {other:?}"),
+        }
+
+        let second_update = runtime.trigger_callback("cb_2", Value::Null).unwrap();
+
+        match second_update[0].typed_tree().unwrap() {
+            Some(UiNode::Button(button)) => {
+                assert_eq!(button.text, "Value: 2 / EffectRuns: 2")
+            }
+            other => panic!("expected button tree payload, got {other:?}"),
+        }
+    }
 }

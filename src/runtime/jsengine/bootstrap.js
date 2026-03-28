@@ -825,6 +825,10 @@ class AppEngine {
     constructor() {
         this.rootRenderFn = null;
         this.isRenderPending = false;
+        this.hookStates = [];
+        this.hookEffects = [];
+        this.hookCursor = 0;
+        this.pendingEffects = [];
     }
 
     run(config) {
@@ -859,6 +863,8 @@ class AppEngine {
     executeRender() {
         try {
             GlobalCallbackRegistry.beginRender();
+            this.hookCursor = 0;
+            HookRuntime.setActiveEngine(this);
 
             const vdomTree = this.rootRenderFn();
             const alertNode = renderActiveAlert();
@@ -876,9 +882,78 @@ class AppEngine {
                 action: 'UPDATE_VDOM',
                 tree
             }));
+
+            this.flushEffects();
         } finally {
+            HookRuntime.clearActiveEngine();
             GlobalCallbackRegistry.clearStale();
             this.isRenderPending = false;
+        }
+    }
+
+    nextHookIndex() {
+        const index = this.hookCursor;
+        this.hookCursor += 1;
+        return index;
+    }
+
+    useState(initialValue) {
+        const hookIndex = this.nextHookIndex();
+
+        if (!(hookIndex in this.hookStates)) {
+            this.hookStates[hookIndex] =
+                typeof initialValue === 'function' ? initialValue() : initialValue;
+        }
+
+        const setState = (nextValue) => {
+            const previousState = this.hookStates[hookIndex];
+            const resolvedValue =
+                typeof nextValue === 'function' ? nextValue(previousState) : nextValue;
+
+            if (Object.is(previousState, resolvedValue)) {
+                return;
+            }
+
+            this.hookStates[hookIndex] = resolvedValue;
+            this.requestRender();
+        };
+
+        return {
+            state: this.hookStates[hookIndex],
+            setState
+        };
+    }
+
+    useEffect(effectFn, dependencies) {
+        const hookIndex = this.nextHookIndex();
+        const previous = this.hookEffects[hookIndex];
+        const deps = Array.isArray(dependencies) ? dependencies : undefined;
+        const shouldRun =
+            !previous ||
+            !deps ||
+            !Array.isArray(previous.dependencies) ||
+            deps.length !== previous.dependencies.length ||
+            deps.some((dep, index) => !Object.is(dep, previous.dependencies[index]));
+
+        this.hookEffects[hookIndex] = {
+            dependencies: deps
+        };
+
+        if (shouldRun && typeof effectFn === 'function') {
+            this.pendingEffects.push(effectFn);
+        }
+    }
+
+    flushEffects() {
+        if (this.pendingEffects.length === 0) {
+            return;
+        }
+
+        const effectsToRun = this.pendingEffects;
+        this.pendingEffects = [];
+
+        for (const effectFn of effectsToRun) {
+            effectFn();
         }
     }
 
@@ -888,3 +963,29 @@ class AppEngine {
 }
 
 globalThis.App = new AppEngine();
+
+const HookRuntime = {
+    activeEngine: null,
+
+    setActiveEngine(engine) {
+        this.activeEngine = engine;
+    },
+
+    clearActiveEngine() {
+        this.activeEngine = null;
+    },
+
+    requireActiveEngine(name) {
+        if (!this.activeEngine) {
+            throw new Error(`${name}() can only be used while App is rendering.`);
+        }
+
+        return this.activeEngine;
+    }
+};
+
+globalThis.useState = (initialValue) =>
+    HookRuntime.requireActiveEngine('useState').useState(initialValue);
+
+globalThis.useEffect = (effectFn, dependencies) =>
+    HookRuntime.requireActiveEngine('useEffect').useEffect(effectFn, dependencies);
