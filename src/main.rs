@@ -62,12 +62,42 @@ struct RustyJsApp {
     window: WindowConfig,
     tree: Option<UiNode>,
     error: Option<String>,
+    pending_text_inputs: PendingTextInputs,
+}
+
+#[derive(Default)]
+struct PendingTextInputs {
+    events: Vec<EventPayload>,
+}
+
+impl PendingTextInputs {
+    fn push(&mut self, event: EventPayload) {
+        if let Some(pending) = self
+            .events
+            .iter_mut()
+            .find(|pending| pending.callback_id == event.callback_id)
+        {
+            pending.data = event.data;
+            return;
+        }
+
+        self.events.push(event);
+    }
+
+    fn take(&mut self) -> Vec<EventPayload> {
+        std::mem::take(&mut self.events)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     UiEvent(EventPayload),
-    AsyncTick,
+    TextInputEvent(EventPayload),
+    FrameTick,
 }
 
 impl Application for RustyJsApp {
@@ -83,6 +113,7 @@ impl Application for RustyJsApp {
                 window: flags.window,
                 tree: flags.tree,
                 error: flags.error,
+                pending_text_inputs: PendingTextInputs::default(),
             },
             Command::none(),
         )
@@ -94,41 +125,23 @@ impl Application for RustyJsApp {
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
         match message {
-            Message::UiEvent(event) => match self
-                .runtime
-                .trigger_callback(&event.callback_id, event.data)
-            {
-                Ok(payloads) => {
-                    self.error = None;
-                    if let Err(error) = apply_payloads(&mut self.window, &mut self.tree, payloads) {
-                        self.error = Some(error.to_string());
-                    }
-                }
-                Err(error) => {
-                    self.error = Some(error.to_string());
-                }
-            },
-            Message::AsyncTick => match self.runtime.poll_async() {
-                Ok(payloads) if !payloads.is_empty() => {
-                    if let Err(error) = apply_payloads(&mut self.window, &mut self.tree, payloads) {
-                        self.error = Some(error.to_string());
-                    } else {
-                        self.error = None;
-                    }
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    self.error = Some(error.to_string());
-                }
-            },
+            Message::UiEvent(event) => {
+                self.flush_pending_text_inputs();
+                self.process_ui_event(event);
+            }
+            Message::TextInputEvent(event) => self.queue_text_input(event),
+            Message::FrameTick => {
+                self.flush_pending_text_inputs();
+                self.poll_async();
+            }
         }
 
         Command::none()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        if self.runtime.has_pending_fetches() {
-            return time::every(Duration::from_millis(16)).map(|_| Message::AsyncTick);
+        if self.runtime.has_pending_fetches() || !self.pending_text_inputs.is_empty() {
+            return time::every(Duration::from_millis(16)).map(|_| Message::FrameTick);
         }
 
         Subscription::none()
@@ -136,12 +149,59 @@ impl Application for RustyJsApp {
 
     fn view(&self) -> Element<'_, Self::Message> {
         if let Some(tree) = &self.tree {
-            return ui::render_root(tree, Message::UiEvent);
+            return ui::render_root(tree, Message::UiEvent, Message::TextInputEvent);
         }
 
         let message = self.error.as_deref().unwrap_or("Booting RustyJS-UI...");
 
         text(message).size(20).into()
+    }
+}
+
+impl RustyJsApp {
+    fn queue_text_input(&mut self, event: EventPayload) {
+        self.pending_text_inputs.push(event);
+    }
+
+    fn flush_pending_text_inputs(&mut self) {
+        let pending = self.pending_text_inputs.take();
+
+        for event in pending {
+            self.process_ui_event(event);
+        }
+    }
+
+    fn process_ui_event(&mut self, event: EventPayload) {
+        match self
+            .runtime
+            .trigger_callback(&event.callback_id, event.data)
+        {
+            Ok(payloads) => {
+                self.error = None;
+                if let Err(error) = apply_payloads(&mut self.window, &mut self.tree, payloads) {
+                    self.error = Some(error.to_string());
+                }
+            }
+            Err(error) => {
+                self.error = Some(error.to_string());
+            }
+        }
+    }
+
+    fn poll_async(&mut self) {
+        match self.runtime.poll_async() {
+            Ok(payloads) if !payloads.is_empty() => {
+                if let Err(error) = apply_payloads(&mut self.window, &mut self.tree, payloads) {
+                    self.error = Some(error.to_string());
+                } else {
+                    self.error = None;
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                self.error = Some(error.to_string());
+            }
+        }
     }
 }
 
@@ -184,4 +244,38 @@ fn apply_payloads(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PendingTextInputs;
+    use rustyjs_ui::bridge::EventPayload;
+    use serde_json::Value;
+
+    #[test]
+    fn pending_text_inputs_coalesce_by_callback_id() {
+        let mut pending = PendingTextInputs::default();
+
+        pending.push(EventPayload::new(
+            "cb_email",
+            Value::String("a".to_string()),
+        ));
+        pending.push(EventPayload::new(
+            "cb_email",
+            Value::String("ab".to_string()),
+        ));
+        pending.push(EventPayload::new(
+            "cb_password",
+            Value::String("secret".to_string()),
+        ));
+
+        let drained = pending.take();
+
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].callback_id, "cb_email");
+        assert_eq!(drained[0].data, Value::String("ab".to_string()));
+        assert_eq!(drained[1].callback_id, "cb_password");
+        assert_eq!(drained[1].data, Value::String("secret".to_string()));
+        assert!(pending.is_empty());
+    }
 }

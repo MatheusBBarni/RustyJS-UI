@@ -19,19 +19,20 @@ use std::rc::Rc;
 pub fn render_root<'a, Message>(
     node: &'a UiNode,
     on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+    on_text_input: impl Fn(EventPayload) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
 {
     let content = match node {
         UiNode::Modal(_) => empty_fill(),
-        _ => render_node(node, on_event),
+        _ => render_node(node, on_event, on_text_input),
     };
     let modals = collect_visible_modals(node)
         .into_iter()
         .map(|modal| {
             RenderedModal::new(
-                render_modal(modal, on_event),
+                render_modal(modal, on_event, on_text_input),
                 modal
                     .on_request_close
                     .as_ref()
@@ -50,17 +51,18 @@ where
 fn render_node<'a, Message>(
     node: &'a UiNode,
     on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+    on_text_input: impl Fn(EventPayload) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
 {
     match node {
-        UiNode::View(view) => render_view(view, on_event),
-        UiNode::FlatList(flat_list) => render_flat_list(flat_list, on_event),
+        UiNode::View(view) => render_view(view, on_event, on_text_input),
+        UiNode::FlatList(flat_list) => render_flat_list(flat_list, on_event, on_text_input),
         UiNode::Modal(_) => empty_fill(),
         UiNode::Text(text_node) => render_text(text_node),
         UiNode::Button(button_node) => render_button(button_node, on_event),
-        UiNode::TextInput(input_node) => render_text_input(input_node, on_event),
+        UiNode::TextInput(input_node) => render_text_input(input_node, on_text_input),
         UiNode::SelectInput(select_node) => render_select_input(select_node, on_event),
     }
 }
@@ -68,16 +70,18 @@ where
 fn render_view<'a, Message>(
     node: &'a ViewNode,
     on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+    on_text_input: impl Fn(EventPayload) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
 {
-    render_flex_children(&node.style, &node.children, on_event)
+    render_flex_children(&node.style, &node.children, on_event, on_text_input)
 }
 
 fn render_flat_list<'a, Message>(
     node: &'a FlatListNode,
     on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+    on_text_input: impl Fn(EventPayload) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
@@ -87,7 +91,7 @@ where
         .iter()
         .find(|child| !matches!(child, UiNode::Modal(_)))
     {
-        render_node(child, on_event)
+        render_node(child, on_event, on_text_input)
     } else {
         Space::with_width(Length::Shrink).into()
     };
@@ -106,6 +110,7 @@ where
 fn render_modal<'a, Message>(
     node: &'a ModalNode,
     on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+    on_text_input: impl Fn(EventPayload) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
@@ -121,13 +126,14 @@ where
             .or(Some(StyleColor::rgb(1.0, 1.0, 1.0)));
     }
 
-    render_flex_children(&style, &node.children, on_event)
+    render_flex_children(&style, &node.children, on_event, on_text_input)
 }
 
 fn render_flex_children<'a, Message>(
     style: &Style,
     children: &'a [UiNode],
     on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+    on_text_input: impl Fn(EventPayload) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
@@ -135,7 +141,7 @@ where
     let children = children
         .iter()
         .filter(|child| !matches!(child, UiNode::Modal(_)))
-        .map(|child| render_node(child, on_event))
+        .map(|child| render_node(child, on_event, on_text_input))
         .collect::<Vec<_>>();
     let (children, fill_main_axis) = apply_justify_content(
         children,
@@ -265,7 +271,7 @@ where
 
 fn render_text_input<'a, Message>(
     node: &'a TextInputNode,
-    on_event: impl Fn(EventPayload) -> Message + Copy + 'a,
+    on_text_input: impl Fn(EventPayload) -> Message + Copy + 'a,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
@@ -284,7 +290,7 @@ where
         if let Some(callback) = &node.on_change {
             let callback_id = callback.id.clone();
             widget = widget.on_input(move |value| {
-                on_event(EventPayload::new(callback_id.clone(), Value::String(value)))
+                on_text_input(EventPayload::new(callback_id.clone(), Value::String(value)))
             });
         }
     }

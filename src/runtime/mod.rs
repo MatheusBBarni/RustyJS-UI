@@ -526,7 +526,7 @@ App.run({
     }
 
     #[test]
-    fn previous_generation_text_input_callback_remains_valid() {
+    fn previous_generation_text_input_callback_remains_valid_across_many_renders() {
         let mut runtime = JsRuntime::new().unwrap();
         let bootstrap = jsengine::bootstrap();
 
@@ -570,22 +570,16 @@ App.run({
             other => panic!("expected text input tree payload, got {other:?}"),
         };
 
-        let first_update = runtime
-            .trigger_callback(&initial_callback_id, Value::String("a".to_string()))
-            .unwrap();
+        for index in 1..=32 {
+            let next_value = "a".repeat(index);
+            let update = runtime
+                .trigger_callback(&initial_callback_id, Value::String(next_value.clone()))
+                .unwrap();
 
-        match first_update[0].typed_tree().unwrap() {
-            Some(UiNode::TextInput(input)) => assert_eq!(input.value, "a"),
-            other => panic!("expected text input tree payload, got {other:?}"),
-        }
-
-        let second_update = runtime
-            .trigger_callback(&initial_callback_id, Value::String("ab".to_string()))
-            .unwrap();
-
-        match second_update[0].typed_tree().unwrap() {
-            Some(UiNode::TextInput(input)) => assert_eq!(input.value, "ab"),
-            other => panic!("expected text input tree payload, got {other:?}"),
+            match update[0].typed_tree().unwrap() {
+                Some(UiNode::TextInput(input)) => assert_eq!(input.value, next_value),
+                other => panic!("expected text input tree payload, got {other:?}"),
+            }
         }
     }
 

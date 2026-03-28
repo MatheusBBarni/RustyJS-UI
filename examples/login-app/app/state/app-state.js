@@ -41,6 +41,15 @@ function rerender() {
   App.requestRender();
 }
 
+function updateValue(target, key, value) {
+  if (target[key] === value) {
+    return false;
+  }
+
+  target[key] = value;
+  return true;
+}
+
 function sortTasks(items) {
   return items
     .slice()
@@ -187,33 +196,39 @@ export function closeAuthModal() {
 }
 
 export function setLoginField(field, value) {
-  state.forms.login[field] = value;
-  rerender();
+  if (updateValue(state.forms.login, field, value)) {
+    rerender();
+  }
 }
 
 export function setRegisterField(field, value) {
-  state.forms.register[field] = value;
-  rerender();
+  if (updateValue(state.forms.register, field, value)) {
+    rerender();
+  }
 }
 
 export function setTaskComposerField(field, value) {
-  state.forms.createTask[field] = value;
-  rerender();
+  if (updateValue(state.forms.createTask, field, value)) {
+    rerender();
+  }
 }
 
 export function setTaskDetailField(field, value) {
-  state.forms.taskDetail[field] = value;
-  rerender();
+  if (updateValue(state.forms.taskDetail, field, value)) {
+    rerender();
+  }
 }
 
 export function setTaskFilter(value) {
-  state.filters.tasks = value;
-  rerender();
+  if (updateValue(state.filters, 'tasks', value)) {
+    rerender();
+  }
 }
 
 export function setUserFilter(value) {
-  state.filters.users = value;
-  rerender();
+  if (updateValue(state.filters, 'users', value)) {
+    rerender();
+  }
 }
 
 export function openUserModal(mode, user = null) {
@@ -239,8 +254,9 @@ export function closeUserModal() {
 }
 
 export function setUserFormField(field, value) {
-  state.forms.user[field] = value;
-  rerender();
+  if (updateValue(state.forms.user, field, value)) {
+    rerender();
+  }
 }
 
 export async function submitLogin(route) {
