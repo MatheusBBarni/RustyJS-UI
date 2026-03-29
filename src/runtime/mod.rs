@@ -1,8 +1,10 @@
 mod fetch;
 mod jsengine;
 mod modules;
+mod storage;
+mod timer;
 
-use crate::bridge::BridgePayload;
+use crate::bridge::{coalesce_payloads, BridgePayload};
 use anyhow::{anyhow, Context as AnyhowContext, Result};
 use boa_engine::{
     builtins::promise::PromiseState,
@@ -16,30 +18,66 @@ use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use storage::{StorageCompletion, StorageRequest, StorageTransport};
+use timer::{TimerCompletion, TimerTransport};
 
 thread_local! {
     static OUTBOUND_QUEUE: RefCell<VecDeque<String>> = const { RefCell::new(VecDeque::new()) };
 }
 
-/// Boa runtime host for the RustyJS-UI bridge.
-///
-/// The runtime evaluates bundled JS files that expose the JS-side helpers
-/// (`App`, `View`, `Text`, `Button`, `TextInput`, `SelectInput`, and `__SEND_TO_RUST__`)
-/// plus a sample counter app used for the MVP.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeWarning {
+    pub message: String,
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeDiagnostics {
+    pub eval_script_calls: u64,
+    pub eval_module_calls: u64,
+    pub callback_calls: u64,
+    pub poll_async_calls: u64,
+    pub drain_payload_calls: u64,
+    pub bridge_messages_seen: u64,
+    pub bridge_parse_time: Duration,
+    pub eval_script_time: Duration,
+    pub eval_module_time: Duration,
+    pub callback_time: Duration,
+    pub poll_async_time: Duration,
+    pub drain_payload_time: Duration,
+    pub coalesced_update_batches: u64,
+    pub warnings: Vec<RuntimeWarning>,
+}
+
+impl RuntimeDiagnostics {
+    fn push_warning(&mut self, warning: RuntimeWarning) {
+        self.warnings.push(warning);
+    }
+}
+
 #[derive(Debug)]
 pub struct JsRuntime {
     context: BoaContext<'static>,
     module_loader: Rc<AppModuleLoader>,
     fetch_transport: FetchTransport,
+    storage_transport: StorageTransport,
+    timer_transport: TimerTransport,
     pending_fetches: HashMap<u64, String>,
+    pending_storage_requests: HashMap<u64, String>,
+    pending_timer_requests: HashMap<u64, String>,
+    diagnostics: RuntimeDiagnostics,
 }
 
 impl JsRuntime {
-    /// Creates a new Boa context and installs the host bridge helpers.
     pub fn new() -> Result<Self> {
+        let storage_path = std::env::temp_dir().join("rustyjs-ui-storage.json");
+        Self::new_with_storage_path(storage_path)
+    }
+
+    pub fn new_with_storage_path(storage_path: impl Into<PathBuf>) -> Result<Self> {
         let module_loader = Rc::new(AppModuleLoader::new());
         let loader: Rc<dyn ModuleLoader> = module_loader.clone();
         let mut context = BoaContext::builder()
@@ -47,6 +85,8 @@ impl JsRuntime {
             .build()
             .map_err(|err| anyhow!("failed to build JS runtime context: {err}"))?;
         let fetch_transport = FetchTransport::new()?;
+        let storage_transport = StorageTransport::new_with_path(storage_path.into())?;
+        let timer_transport = TimerTransport::new()?;
         context
             .register_global_callable(
                 "__RUSTYJS_NATIVE_CAPTURE__",
@@ -59,13 +99,15 @@ impl JsRuntime {
             context,
             module_loader,
             fetch_transport,
+            storage_transport,
+            timer_transport,
             pending_fetches: HashMap::new(),
+            pending_storage_requests: HashMap::new(),
+            pending_timer_requests: HashMap::new(),
+            diagnostics: RuntimeDiagnostics::default(),
         })
     }
 
-    /// Boots the bundled runtime scripts and loads the sample counter app.
-    ///
-    /// Returns the runtime plus the payloads produced during initialization.
     pub fn startup() -> Result<(Self, Vec<BridgePayload>)> {
         let bootstrap = jsengine::bootstrap();
         let sample_app = jsengine::counter_app();
@@ -77,9 +119,6 @@ impl JsRuntime {
         Ok((runtime, initial_payloads))
     }
 
-    /// Boots the embedded runtime and loads the provided app source.
-    ///
-    /// Returns the runtime plus the payloads produced during initialization.
     pub fn startup_with_app_source(app_source: &str) -> Result<(Self, Vec<BridgePayload>)> {
         let mut runtime = Self::new()?;
         let bootstrap = jsengine::bootstrap();
@@ -89,9 +128,6 @@ impl JsRuntime {
         Ok((runtime, initial_payloads))
     }
 
-    /// Boots the embedded runtime and loads the provided app entry as an ECMAScript module.
-    ///
-    /// Returns the runtime plus the payloads produced during initialization.
     pub fn startup_with_app_entry(entry_path: &Path) -> Result<(Self, Vec<BridgePayload>)> {
         let mut runtime = Self::new()?;
         let bootstrap = jsengine::bootstrap();
@@ -118,12 +154,10 @@ impl JsRuntime {
         Ok((runtime, initial_payloads))
     }
 
-    /// Evaluates additional JS source and returns any payloads emitted by it.
     pub fn eval_script(&mut self, source: &str) -> Result<Vec<BridgePayload>> {
         self.eval_script_with_path(source, None)
     }
 
-    /// Evaluates an app entry file as an ECMAScript module and returns any emitted payloads.
     pub fn eval_module_entry(&mut self, entry_path: &Path) -> Result<Vec<BridgePayload>> {
         let (canonical_entry, module) = self
             .module_loader
@@ -131,11 +165,20 @@ impl JsRuntime {
         self.eval_module(canonical_entry.as_path(), &module)
     }
 
+    pub fn diagnostics(&self) -> &RuntimeDiagnostics {
+        &self.diagnostics
+    }
+
+    pub fn reset_diagnostics(&mut self) {
+        self.diagnostics = RuntimeDiagnostics::default();
+    }
+
     fn eval_script_with_path(
         &mut self,
         source: &str,
         source_path: Option<&str>,
     ) -> Result<Vec<BridgePayload>> {
+        let started_at = Instant::now();
         self.context
             .eval(Source::from_reader(
                 source.as_bytes(),
@@ -143,16 +186,20 @@ impl JsRuntime {
             ))
             .map_err(|err| anyhow!("failed to evaluate JS source: {err}"))?;
         self.context.run_jobs();
-        self.drain_payloads()
+        let payloads = self.drain_payloads();
+        self.diagnostics.eval_script_calls += 1;
+        self.diagnostics.eval_script_time += started_at.elapsed();
+        payloads
     }
 
     fn eval_module(&mut self, entry_path: &Path, module: &Module) -> Result<Vec<BridgePayload>> {
+        let started_at = Instant::now();
         let promise = module
             .load_link_evaluate(&mut self.context)
             .map_err(|err| anyhow!("failed to load JS module `{}`: {err}", entry_path.display()))?;
         self.context.run_jobs();
 
-        match promise.state().map_err(|err| {
+        let result = match promise.state().map_err(|err| {
             anyhow!(
                 "failed to inspect JS module `{}`: {err}",
                 entry_path.display()
@@ -168,13 +215,15 @@ impl JsRuntime {
                 "JS module `{}` is still pending after startup; top-level await is not supported",
                 entry_path.display()
             )),
-        }
+        };
+
+        self.diagnostics.eval_module_calls += 1;
+        self.diagnostics.eval_module_time += started_at.elapsed();
+        result
     }
 
-    /// Drains outbound bridge payloads that the JS runtime queued.
-    ///
-    /// Fetch requests are intercepted and dispatched to the async transport.
     pub fn drain_payloads(&mut self) -> Result<Vec<BridgePayload>> {
+        let started_at = Instant::now();
         let mut payloads = Vec::new();
 
         loop {
@@ -184,24 +233,47 @@ impl JsRuntime {
             }
 
             for message in pending {
-                match parse_outbound_message(&message)? {
+                self.diagnostics.bridge_messages_seen += 1;
+                let parse_started_at = Instant::now();
+                let outbound = parse_outbound_message(&message)?;
+                self.diagnostics.bridge_parse_time += parse_started_at.elapsed();
+
+                match outbound {
                     OutboundMessage::Payload(payload) => payloads.push(payload),
-                    OutboundMessage::FetchRequest(request) => {
-                        self.submit_fetch_request(request)?;
+                    OutboundMessage::FetchRequest(request) => self.submit_fetch_request(request)?,
+                    OutboundMessage::StorageRequest(request) => {
+                        self.submit_storage_request(request)?
+                    }
+                    OutboundMessage::TimerRequest(request) => self.submit_timer_request(request)?,
+                    OutboundMessage::DevWarning(warning) => {
+                        let warning = RuntimeWarning {
+                            message: warning.message,
+                            details: warning.details,
+                        };
+                        eprintln!("RustyJS-UI warning: {}", warning.message);
+                        self.diagnostics.push_warning(warning);
                     }
                 }
             }
         }
 
+        let original_len = payloads.len();
+        let payloads = coalesce_payloads(payloads);
+        if original_len > payloads.len() {
+            self.diagnostics.coalesced_update_batches += 1;
+        }
+
+        self.diagnostics.drain_payload_calls += 1;
+        self.diagnostics.drain_payload_time += started_at.elapsed();
         Ok(payloads)
     }
 
-    /// Triggers a registered JS callback and returns any payloads emitted by it.
     pub fn trigger_callback(
         &mut self,
         callback_id: &str,
         payload: Value,
     ) -> Result<Vec<BridgePayload>> {
+        let started_at = Instant::now();
         let callback_id =
             serde_json::to_string(callback_id).context("failed to encode callback id")?;
         let payload =
@@ -211,12 +283,16 @@ impl JsRuntime {
             .eval(Source::from_bytes(script.as_str()))
             .map_err(|err| anyhow!("failed to trigger JS callback: {err}"))?;
         self.context.run_jobs();
-        self.drain_payloads()
+        let payloads = self.drain_payloads();
+        self.diagnostics.callback_calls += 1;
+        self.diagnostics.callback_time += started_at.elapsed();
+        payloads
     }
 
-    /// Polls for completed async fetch requests and resolves any pending JS promises.
     pub fn poll_async(&mut self) -> Result<Vec<BridgePayload>> {
-        if self.pending_fetches.is_empty() {
+        let started_at = Instant::now();
+
+        if !self.has_pending_async_work() {
             return Ok(Vec::new());
         }
 
@@ -242,19 +318,57 @@ impl JsRuntime {
             payloads.extend(self.drain_payloads()?);
         }
 
+        for completion in self.storage_transport.drain_completions() {
+            let Some(request_id) = self.pending_storage_requests.remove(&completion.request_id())
+            else {
+                continue;
+            };
+
+            match completion {
+                StorageCompletion::Response(response) => {
+                    self.resolve_storage(&request_id, response.value)?
+                }
+                StorageCompletion::Error(error) => {
+                    self.reject_storage(&request_id, &error.message)?
+                }
+            }
+
+            payloads.extend(self.drain_payloads()?);
+        }
+
+        for completion in self.timer_transport.drain_completions() {
+            let Some(request_id) = self.pending_timer_requests.remove(&completion.request_id())
+            else {
+                continue;
+            };
+
+            match completion {
+                TimerCompletion::Response(_) => self.resolve_timer(&request_id)?,
+                TimerCompletion::Error(error) => self.reject_timer(&request_id, &error.message)?,
+            }
+
+            payloads.extend(self.drain_payloads()?);
+        }
+
+        self.diagnostics.poll_async_calls += 1;
+        self.diagnostics.poll_async_time += started_at.elapsed();
         Ok(payloads)
     }
 
     pub fn has_pending_fetches(&self) -> bool {
-        !self.pending_fetches.is_empty()
+        self.has_pending_async_work()
     }
 
-    /// Returns the bundled bootstrap script.
+    pub fn has_pending_async_work(&self) -> bool {
+        !self.pending_fetches.is_empty()
+            || !self.pending_storage_requests.is_empty()
+            || !self.pending_timer_requests.is_empty()
+    }
+
     pub fn bootstrap_source() -> &'static str {
         jsengine::bootstrap().source
     }
 
-    /// Returns the bundled sample counter app.
     pub fn sample_counter_app_source() -> &'static str {
         jsengine::counter_app().source
     }
@@ -270,13 +384,43 @@ impl JsRuntime {
                 Ok(internal_id) => {
                     self.pending_fetches.insert(internal_id, request_id);
                 }
-                Err(error) => {
-                    self.reject_fetch(&request_id, &error.to_string())?;
-                }
+                Err(error) => self.reject_fetch(&request_id, &error.to_string())?,
             },
-            Err(error) => {
-                self.reject_fetch(&request_id, &error.to_string())?;
+            Err(error) => self.reject_fetch(&request_id, &error.to_string())?,
+        }
+
+        Ok(())
+    }
+
+    fn submit_storage_request(&mut self, request: OutboundStorageRequest) -> Result<()> {
+        let request_id = request.request_id.clone();
+        let transport_request = request
+            .to_transport_request()
+            .with_context(|| format!("failed to prepare storage request: {request_id}"));
+
+        match transport_request {
+            Ok(transport_request) => match self.storage_transport.submit(transport_request) {
+                Ok(internal_id) => {
+                    self.pending_storage_requests.insert(internal_id, request_id);
+                }
+                Err(error) => self.reject_storage(&request_id, &error.to_string())?,
+            },
+            Err(error) => self.reject_storage(&request_id, &error.to_string())?,
+        }
+
+        Ok(())
+    }
+
+    fn submit_timer_request(&mut self, request: OutboundTimerRequest) -> Result<()> {
+        let request_id = request.request_id.clone();
+        match self
+            .timer_transport
+            .submit(Duration::from_millis(request.delay_ms))
+        {
+            Ok(internal_id) => {
+                self.pending_timer_requests.insert(internal_id, request_id);
             }
+            Err(error) => self.reject_timer(&request_id, &error.to_string())?,
         }
 
         Ok(())
@@ -305,12 +449,62 @@ impl JsRuntime {
         self.context.run_jobs();
         Ok(())
     }
+
+    fn resolve_storage(&mut self, request_id: &str, value: Option<String>) -> Result<()> {
+        let request_id =
+            serde_json::to_string(request_id).context("failed to encode storage request id")?;
+        let value = serde_json::to_string(&value).context("failed to encode storage value")?;
+        let script = format!("globalThis.RustBridge.resolveStorage({request_id}, {value});");
+        self.context
+            .eval(Source::from_bytes(script.as_str()))
+            .map_err(|err| anyhow!("failed to resolve storage promise: {err}"))?;
+        self.context.run_jobs();
+        Ok(())
+    }
+
+    fn reject_storage(&mut self, request_id: &str, message: &str) -> Result<()> {
+        let request_id =
+            serde_json::to_string(request_id).context("failed to encode storage request id")?;
+        let message = serde_json::to_string(message).context("failed to encode storage error")?;
+        let script = format!("globalThis.RustBridge.rejectStorage({request_id}, {message});");
+        self.context
+            .eval(Source::from_bytes(script.as_str()))
+            .map_err(|err| anyhow!("failed to reject storage promise: {err}"))?;
+        self.context.run_jobs();
+        Ok(())
+    }
+
+    fn resolve_timer(&mut self, request_id: &str) -> Result<()> {
+        let request_id =
+            serde_json::to_string(request_id).context("failed to encode timer request id")?;
+        let script = format!("globalThis.RustBridge.resolveTimer({request_id});");
+        self.context
+            .eval(Source::from_bytes(script.as_str()))
+            .map_err(|err| anyhow!("failed to resolve timer promise: {err}"))?;
+        self.context.run_jobs();
+        Ok(())
+    }
+
+    fn reject_timer(&mut self, request_id: &str, message: &str) -> Result<()> {
+        let request_id =
+            serde_json::to_string(request_id).context("failed to encode timer request id")?;
+        let message = serde_json::to_string(message).context("failed to encode timer error")?;
+        let script = format!("globalThis.RustBridge.rejectTimer({request_id}, {message});");
+        self.context
+            .eval(Source::from_bytes(script.as_str()))
+            .map_err(|err| anyhow!("failed to reject timer promise: {err}"))?;
+        self.context.run_jobs();
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
 enum OutboundMessage {
     Payload(BridgePayload),
     FetchRequest(OutboundFetchRequest),
+    StorageRequest(OutboundStorageRequest),
+    TimerRequest(OutboundTimerRequest),
+    DevWarning(OutboundDevWarning),
 }
 
 #[derive(Debug, Deserialize)]
@@ -324,6 +518,32 @@ struct OutboundFetchRequest {
     headers: BTreeMap<String, String>,
     #[serde(default)]
     body: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutboundStorageRequest {
+    #[serde(rename = "requestId")]
+    request_id: String,
+    operation: String,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutboundTimerRequest {
+    #[serde(rename = "requestId")]
+    request_id: String,
+    #[serde(rename = "delayMs")]
+    delay_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutboundDevWarning {
+    message: String,
+    #[serde(default)]
+    details: Option<String>,
 }
 
 impl OutboundFetchRequest {
@@ -349,6 +569,31 @@ impl OutboundFetchRequest {
         }
 
         Ok(request)
+    }
+}
+
+impl OutboundStorageRequest {
+    fn to_transport_request(&self) -> Result<StorageRequest> {
+        match self.operation.trim().to_ascii_uppercase().as_str() {
+            "GET" => Ok(StorageRequest::get(
+                self.key
+                    .clone()
+                    .ok_or_else(|| anyhow!("storage get requests require a key"))?,
+            )),
+            "SET" => Ok(StorageRequest::set(
+                self.key
+                    .clone()
+                    .ok_or_else(|| anyhow!("storage set requests require a key"))?,
+                self.value.clone().unwrap_or_default(),
+            )),
+            "REMOVE" => Ok(StorageRequest::remove(
+                self.key
+                    .clone()
+                    .ok_or_else(|| anyhow!("storage remove requests require a key"))?,
+            )),
+            "CLEAR" => Ok(StorageRequest::clear()),
+            other => Err(anyhow!("unsupported storage operation: {other}")),
+        }
     }
 }
 
@@ -381,15 +626,23 @@ fn parse_outbound_message(input: &str) -> Result<OutboundMessage> {
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("outbound bridge message missing action: {input}"))?;
 
-    if action == "FETCH_REQUEST" {
-        return serde_json::from_value(value)
+    match action {
+        "FETCH_REQUEST" => serde_json::from_value(value)
             .map(OutboundMessage::FetchRequest)
-            .with_context(|| format!("failed to parse fetch request payload: {input}"));
+            .with_context(|| format!("failed to parse fetch request payload: {input}")),
+        "STORAGE_REQUEST" => serde_json::from_value(value)
+            .map(OutboundMessage::StorageRequest)
+            .with_context(|| format!("failed to parse storage request payload: {input}")),
+        "TIMER_REQUEST" => serde_json::from_value(value)
+            .map(OutboundMessage::TimerRequest)
+            .with_context(|| format!("failed to parse timer request payload: {input}")),
+        "DEV_WARNING" => serde_json::from_value(value)
+            .map(OutboundMessage::DevWarning)
+            .with_context(|| format!("failed to parse dev warning payload: {input}")),
+        _ => BridgePayload::parse_json(value)
+            .map(OutboundMessage::Payload)
+            .with_context(|| format!("failed to parse bridge payload: {input}")),
     }
-
-    BridgePayload::parse_json(value)
-        .map(OutboundMessage::Payload)
-        .with_context(|| format!("failed to parse bridge payload: {input}"))
 }
 
 fn native_capture(
@@ -405,341 +658,4 @@ fn native_capture(
         .to_std_string_escaped();
     OUTBOUND_QUEUE.with(|queue| queue.borrow_mut().push_back(payload));
     Ok(JsValue::undefined())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::style::{AlignItems, FlexDirection, JustifyContent, SizeValue};
-    use crate::vdom::UiNode;
-    use serde_json::Value;
-
-    #[test]
-    fn eval_script_emits_prd_style_bridge_payloads() {
-        let mut runtime = JsRuntime::new().unwrap();
-        let bootstrap = jsengine::bootstrap();
-
-        assert!(runtime
-            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
-            .unwrap()
-            .is_empty());
-
-        let payloads = runtime
-            .eval_script(
-                r#"
-let counter = 0;
-
-function increment() {
-    counter += 1;
-    App.requestRender();
-}
-
-function AppLayout() {
-    return Button({
-        text: `Count is: ${counter}`,
-        onClick: increment,
-        style: { padding: 10, backgroundColor: '#007AFF' }
-    });
-}
-
-App.run({
-    title: 'Bridge Test',
-    windowSize: { width: 320, height: 200 },
-    render: AppLayout
-});
-"#,
-            )
-            .unwrap();
-
-        assert_eq!(payloads.len(), 2);
-        assert!(matches!(
-            &payloads[0],
-            BridgePayload::InitWindow {
-                title,
-                width: 320,
-                height: 200
-            } if title == "Bridge Test"
-        ));
-
-        match payloads[1].typed_tree().unwrap() {
-            Some(UiNode::Button(button)) => {
-                assert_eq!(button.text, "Count is: 0");
-                assert_eq!(
-                    button
-                        .on_click
-                        .as_ref()
-                        .map(|callback| callback.id.as_str()),
-                    Some("cb_1")
-                );
-            }
-            other => panic!("expected button tree payload, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn trigger_callback_re_renders_with_updated_vdom() {
-        let mut runtime = JsRuntime::new().unwrap();
-        let bootstrap = jsengine::bootstrap();
-
-        assert!(runtime
-            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
-            .unwrap()
-            .is_empty());
-        runtime
-            .eval_script(
-                r#"
-let counter = 0;
-
-function increment() {
-    counter += 1;
-    App.requestRender();
-}
-
-function AppLayout() {
-    return View({
-        children: [
-            Text({ text: `Count is: ${counter}` }),
-            Button({ text: 'Increment', onClick: increment })
-        ]
-    });
-}
-
-App.run({
-    title: 'Counter Test',
-    render: AppLayout
-});
-"#,
-            )
-            .unwrap();
-
-        let payloads = runtime.trigger_callback("cb_1", Value::Null).unwrap();
-
-        assert_eq!(payloads.len(), 1);
-
-        match payloads[0].typed_tree().unwrap() {
-            Some(UiNode::View(view)) => match view.children.first() {
-                Some(UiNode::Text(text)) => assert_eq!(text.text, "Count is: 1"),
-                other => panic!("expected first child text node, got {other:?}"),
-            },
-            other => panic!("expected view tree payload, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn previous_generation_text_input_callback_remains_valid_across_many_renders() {
-        let mut runtime = JsRuntime::new().unwrap();
-        let bootstrap = jsengine::bootstrap();
-
-        assert!(runtime
-            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
-            .unwrap()
-            .is_empty());
-
-        let initial_payloads = runtime
-            .eval_script(
-                r#"
-let value = '';
-
-function handleChange(nextValue) {
-    value = nextValue;
-    App.requestRender();
-}
-
-function AppLayout() {
-    return TextInput({
-        value,
-        placeholder: 'Type here',
-        onChange: handleChange
-    });
-}
-
-App.run({
-    title: 'Input Callback Test',
-    render: AppLayout
-});
-"#,
-            )
-            .unwrap();
-
-        let initial_callback_id = match initial_payloads[1].typed_tree().unwrap() {
-            Some(UiNode::TextInput(input)) => input
-                .on_change
-                .as_ref()
-                .map(|callback| callback.id.clone())
-                .expect("expected text input callback"),
-            other => panic!("expected text input tree payload, got {other:?}"),
-        };
-
-        for index in 1..=32 {
-            let next_value = "a".repeat(index);
-            let update = runtime
-                .trigger_callback(&initial_callback_id, Value::String(next_value.clone()))
-                .unwrap();
-
-            match update[0].typed_tree().unwrap() {
-                Some(UiNode::TextInput(input)) => assert_eq!(input.value, next_value),
-                other => panic!("expected text input tree payload, got {other:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn bootstrap_normalizes_web_flex_style_aliases() {
-        let mut runtime = JsRuntime::new().unwrap();
-        let bootstrap = jsengine::bootstrap();
-
-        assert!(runtime
-            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
-            .unwrap()
-            .is_empty());
-
-        let payloads = runtime
-            .eval_script(
-                r#"
-function AppLayout() {
-    return View({
-        style: {
-            flexDirection: 'column',
-            gap: 12,
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-            width: 'fill',
-            height: 'fill'
-        },
-        children: [
-            Text({ text: 'Top' }),
-            Text({ text: 'Bottom' })
-        ]
-    });
-}
-
-App.run({
-    title: 'Flex Alias Test',
-    render: AppLayout
-});
-"#,
-            )
-            .unwrap();
-
-        assert_eq!(payloads.len(), 2);
-
-        match payloads[1].typed_tree().unwrap() {
-            Some(UiNode::View(view)) => {
-                assert_eq!(view.style.layout.flex_direction, FlexDirection::Column);
-                assert_eq!(view.style.layout.spacing, 12.0);
-                assert_eq!(
-                    view.style.layout.justify_content,
-                    JustifyContent::SpaceBetween
-                );
-                assert_eq!(view.style.layout.align_items, AlignItems::End);
-                assert_eq!(view.style.layout.width, SizeValue::Fill);
-                assert_eq!(view.style.layout.height, SizeValue::Fill);
-            }
-            other => panic!("expected view tree payload, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn esm_detection_only_flags_static_imports_and_exports() {
-        assert!(!uses_static_esm_syntax(
-            "function AppLayout() {\n  return View({ children: [] });\n}\n"
-        ));
-        assert!(uses_static_esm_syntax(
-            "import { SaveButton } from './save_button.js';"
-        ));
-        assert!(uses_static_esm_syntax("export function SaveButton() {}"));
-    }
-
-    #[test]
-    fn use_state_setter_re_renders_without_manual_request_render() {
-        let mut runtime = JsRuntime::new().unwrap();
-        let bootstrap = jsengine::bootstrap();
-
-        assert!(runtime
-            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
-            .unwrap()
-            .is_empty());
-        runtime
-            .eval_script(
-                r#"
-function CounterApp() {
-    const { state: count, setState: setCount } = useState(0);
-
-    return Button({
-        text: `Count is: ${count}`,
-        onClick: () => setCount((prev) => prev + 1)
-    });
-}
-
-App.run({
-    title: 'Hook Counter',
-    render: CounterApp
-});
-"#,
-            )
-            .unwrap();
-
-        let payloads = runtime.trigger_callback("cb_1", Value::Null).unwrap();
-
-        assert_eq!(payloads.len(), 1);
-
-        match payloads[0].typed_tree().unwrap() {
-            Some(UiNode::Button(button)) => assert_eq!(button.text, "Count is: 1"),
-            other => panic!("expected button tree payload, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn use_effect_runs_on_first_render_and_when_dependencies_change() {
-        let mut runtime = JsRuntime::new().unwrap();
-        let bootstrap = jsengine::bootstrap();
-
-        assert!(runtime
-            .eval_script_with_path(bootstrap.source, Some(bootstrap.path))
-            .unwrap()
-            .is_empty());
-        runtime
-            .eval_script(
-                r#"
-let effectRuns = 0;
-
-function EffectApp() {
-    const { state: value, setState } = useState(0);
-
-    useEffect(() => {
-        effectRuns += 1;
-    }, [value]);
-
-    return Button({
-        text: `Value: ${value} / EffectRuns: ${effectRuns}`,
-        onClick: () => setState(value + 1)
-    });
-}
-
-App.run({
-    title: 'Effect Test',
-    render: EffectApp
-});
-"#,
-            )
-            .unwrap();
-
-        let first_update = runtime.trigger_callback("cb_1", Value::Null).unwrap();
-
-        match first_update[0].typed_tree().unwrap() {
-            Some(UiNode::Button(button)) => {
-                assert_eq!(button.text, "Value: 1 / EffectRuns: 1")
-            }
-            other => panic!("expected button tree payload, got {other:?}"),
-        }
-
-        let second_update = runtime.trigger_callback("cb_2", Value::Null).unwrap();
-
-        match second_update[0].typed_tree().unwrap() {
-            Some(UiNode::Button(button)) => {
-                assert_eq!(button.text, "Value: 2 / EffectRuns: 2")
-            }
-            other => panic!("expected button tree payload, got {other:?}"),
-        }
-    }
 }

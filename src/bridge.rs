@@ -85,6 +85,29 @@ impl BridgePayload {
     }
 }
 
+pub fn coalesce_payloads(payloads: Vec<BridgePayload>) -> Vec<BridgePayload> {
+    let mut init_window = None;
+    let mut last_tree = None;
+
+    for payload in payloads {
+        match payload {
+            payload @ BridgePayload::InitWindow { .. } => init_window = Some(payload),
+            payload @ BridgePayload::UpdateVdom { .. } => last_tree = Some(payload),
+        }
+    }
+
+    let mut coalesced =
+        Vec::with_capacity(init_window.is_some() as usize + last_tree.is_some() as usize);
+    if let Some(payload) = init_window {
+        coalesced.push(payload);
+    }
+    if let Some(payload) = last_tree {
+        coalesced.push(payload);
+    }
+
+    coalesced
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EventPayload {
     pub callback_id: String,
@@ -98,5 +121,49 @@ impl EventPayload {
             callback_id: callback_id.into(),
             data,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vdom::WireProps;
+
+    #[test]
+    fn coalesce_payloads_keeps_last_window_and_tree_payload() {
+        let payloads = vec![
+            BridgePayload::InitWindow {
+                title: "One".to_string(),
+                width: 320,
+                height: 200,
+            },
+            BridgePayload::UpdateVdom {
+                tree: WireNode::new("Text", WireProps::text("first"), Vec::new()),
+            },
+            BridgePayload::InitWindow {
+                title: "Two".to_string(),
+                width: 640,
+                height: 480,
+            },
+            BridgePayload::UpdateVdom {
+                tree: WireNode::new("Text", WireProps::text("second"), Vec::new()),
+            },
+        ];
+
+        let coalesced = coalesce_payloads(payloads);
+
+        assert_eq!(
+            coalesced,
+            vec![
+                BridgePayload::InitWindow {
+                    title: "Two".to_string(),
+                    width: 640,
+                    height: 480,
+                },
+                BridgePayload::UpdateVdom {
+                    tree: WireNode::new("Text", WireProps::text("second"), Vec::new()),
+                }
+            ]
+        );
     }
 }

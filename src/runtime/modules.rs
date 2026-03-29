@@ -223,8 +223,9 @@ const FlatList = globalThis.FlatList;
 const Modal = globalThis.Modal;
 const Alert = globalThis.Alert;
 const fetch = globalThis.fetch;
+const Storage = globalThis.Storage;
 
-export { App, View, Text, Button, TextInput, SelectInput, FlatList, Modal, Alert, fetch };
+export { App, View, Text, Button, TextInput, SelectInput, FlatList, Modal, Alert, fetch, Storage };
 "#;
 
 impl ModuleLoader for AppModuleLoader {

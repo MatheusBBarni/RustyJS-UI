@@ -3,11 +3,12 @@ use iced::executor;
 use iced::widget::text;
 use iced::{time, Application, Command, Element, Settings, Subscription, Theme};
 use rustyjs_ui::bridge::{BridgePayload, EventPayload, WindowConfig};
+use rustyjs_ui::perf;
 use rustyjs_ui::runtime::JsRuntime;
 use rustyjs_ui::ui;
 use rustyjs_ui::vdom::UiNode;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn main() -> iced::Result {
     let script_path = application_script_path();
@@ -140,7 +141,7 @@ impl Application for RustyJsApp {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        if self.runtime.has_pending_fetches() || !self.pending_text_inputs.is_empty() {
+        if self.runtime.has_pending_async_work() || !self.pending_text_inputs.is_empty() {
             return time::every(Duration::from_millis(16)).map(|_| Message::FrameTick);
         }
 
@@ -149,7 +150,10 @@ impl Application for RustyJsApp {
 
     fn view(&self) -> Element<'_, Self::Message> {
         if let Some(tree) = &self.tree {
-            return ui::render_root(tree, Message::UiEvent, Message::TextInputEvent);
+            let started_at = Instant::now();
+            let element = ui::render_root(tree, Message::UiEvent, Message::TextInputEvent);
+            perf::record_render_root(started_at.elapsed());
+            return element;
         }
 
         let message = self.error.as_deref().unwrap_or("Booting RustyJS-UI...");
@@ -227,7 +231,17 @@ fn apply_payload(
             };
         }
         BridgePayload::UpdateVdom { tree: wire_tree } => {
-            *tree = Some(UiNode::try_from(wire_tree)?);
+            perf::record_update_vdom_received();
+            let started_at = Instant::now();
+            let next_tree = UiNode::try_from(wire_tree)?;
+            perf::record_typed_tree_conversion(started_at.elapsed());
+
+            if tree.as_ref() == Some(&next_tree) {
+                perf::record_update_vdom_skipped();
+            } else {
+                *tree = Some(next_tree);
+                perf::record_update_vdom_applied();
+            }
         }
     }
 
@@ -239,8 +253,34 @@ fn apply_payloads(
     tree: &mut Option<UiNode>,
     payloads: Vec<BridgePayload>,
 ) -> Result<()> {
+    let mut pending_tree = None;
+    let mut coalesced_updates = 0_u64;
+
     for payload in payloads {
-        apply_payload(window, tree, payload)?;
+        match payload {
+            BridgePayload::UpdateVdom { tree: wire_tree } => {
+                perf::record_update_vdom_received();
+                if pending_tree.replace(wire_tree).is_some() {
+                    coalesced_updates = coalesced_updates.saturating_add(1);
+                }
+            }
+            payload => apply_payload(window, tree, payload)?,
+        }
+    }
+
+    perf::record_update_vdom_coalesced(coalesced_updates);
+
+    if let Some(wire_tree) = pending_tree {
+        let started_at = Instant::now();
+        let next_tree = UiNode::try_from(wire_tree)?;
+        perf::record_typed_tree_conversion(started_at.elapsed());
+
+        if tree.as_ref() == Some(&next_tree) {
+            perf::record_update_vdom_skipped();
+        } else {
+            *tree = Some(next_tree);
+            perf::record_update_vdom_applied();
+        }
     }
 
     Ok(())

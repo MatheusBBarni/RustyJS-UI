@@ -58,7 +58,7 @@ class CallbackRegistry {
     }
 }
 
-class PendingFetchRegistry {
+class PendingAsyncRegistry {
     constructor() {
         this.requests = new Map();
         this.nextId = 1;
@@ -83,10 +83,21 @@ class PendingFetchRegistry {
 }
 
 const GlobalCallbackRegistry = new CallbackRegistry();
-const PendingFetchRegistryInstance = new PendingFetchRegistry();
+const PendingFetchRegistryInstance = new PendingAsyncRegistry();
+const PendingStorageRegistryInstance = new PendingAsyncRegistry();
 const AlertState = {
     current: null
 };
+const DevWarningRegistry = new Set();
+
+function warnOnce(message) {
+    if (DevWarningRegistry.has(message)) {
+        return;
+    }
+
+    DevWarningRegistry.add(message);
+    console.warn(message);
+}
 
 function normalizeFetchHeaders(headers = {}) {
     if (!headers) {
@@ -208,10 +219,32 @@ function rejectPendingFetch(requestId, error) {
     }
 }
 
+function resolvePendingStorage(requestId, value) {
+    const handled = PendingStorageRegistryInstance.trigger(requestId, (record) =>
+        record.resolve(value ?? null)
+    );
+
+    if (!handled) {
+        console.warn(`Storage request ${requestId} not found.`);
+    }
+}
+
+function rejectPendingStorage(requestId, error) {
+    const handled = PendingStorageRegistryInstance.trigger(requestId, (record) =>
+        record.reject(normalizeFetchError(error))
+    );
+
+    if (!handled) {
+        console.warn(`Storage request ${requestId} not found.`);
+    }
+}
+
 globalThis.RustBridge = {
     trigger: (id, payload) => GlobalCallbackRegistry.trigger(id, payload),
     resolveFetch: resolvePendingFetch,
-    rejectFetch: rejectPendingFetch
+    rejectFetch: rejectPendingFetch,
+    resolveStorage: resolvePendingStorage,
+    rejectStorage: rejectPendingStorage
 };
 
 if (!globalThis.console) {
@@ -289,6 +322,44 @@ function normalizeStyle(style = {}) {
         fontSize: style.fontSize,
         fontWeight: style.fontWeight
     };
+}
+
+function normalizeNodeProps(type, props = {}) {
+    const normalized = { ...props };
+
+    if (type === 'TextInput') {
+        if (normalized.onValueChange !== undefined && normalized.onChange === undefined) {
+            normalized.onChange = normalized.onValueChange;
+        }
+
+        if (normalized.onChange && !Object.prototype.hasOwnProperty.call(normalized, 'value')) {
+            warnOnce('TextInput is controlled-only in this phase. Provide `value` alongside `onChange`.');
+            normalized.value = '';
+        }
+
+        if (normalized.multiline) {
+            warnOnce('TextInput.multiline is not implemented natively yet and will render as a single-line input.');
+        }
+    }
+
+    if (type === 'SelectInput' || type === 'NativeSelect') {
+        if (normalized.onValueChange !== undefined && normalized.onChange === undefined) {
+            normalized.onChange = normalized.onValueChange;
+        }
+
+        if (normalized.onChange && !Object.prototype.hasOwnProperty.call(normalized, 'value')) {
+            warnOnce(`${type} is controlled-only in this phase. Provide \`value\` alongside \`onChange\`.`);
+            normalized.value = '';
+        }
+    }
+
+    if (type === 'Modal') {
+        if (normalized.onClose !== undefined && normalized.onRequestClose === undefined) {
+            normalized.onRequestClose = normalized.onClose;
+        }
+    }
+
+    return normalized;
 }
 
 function createFlatList(props = {}) {
@@ -471,6 +542,7 @@ function renderActiveAlert() {
 }
 
 function createNode(type, props = {}) {
+    props = normalizeNodeProps(type, props);
     const node = { type, props: {}, children: [] };
 
     for (const [key, value] of Object.entries(props)) {
@@ -820,6 +892,38 @@ globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
         ...(normalizedBody === undefined ? {} : { body: normalizedBody })
     });
 });
+
+function storageRequest(operation, key, value) {
+    return new Promise((resolve, reject) => {
+        const requestId = PendingStorageRegistryInstance.register({
+            resolve,
+            reject
+        });
+
+        dispatchToRust({
+            action: 'STORAGE_REQUEST',
+            requestId,
+            operation,
+            ...(key === undefined ? {} : { key: String(key) }),
+            ...(value === undefined ? {} : { value: String(value) })
+        });
+    });
+}
+
+globalThis.Storage = {
+    get(key) {
+        return storageRequest('GET', key);
+    },
+    set(key, value) {
+        return storageRequest('SET', key, value);
+    },
+    remove(key) {
+        return storageRequest('REMOVE', key);
+    },
+    clear() {
+        return storageRequest('CLEAR');
+    }
+};
 
 class AppEngine {
     constructor() {
