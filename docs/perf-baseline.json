@@ -1,0 +1,362 @@
+{
+  "generated_at_epoch_ms": 1774825028533,
+  "scenarios": [
+    {
+      "name": "startup_counter",
+      "elapsed_micros": 42161,
+      "metrics": {
+        "runtime": {
+          "eval_script": {
+            "count": 2,
+            "total_micros": 34202,
+            "max_micros": 29802
+          },
+          "eval_module": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "drain_payloads": {
+            "count": 2,
+            "total_micros": 292,
+            "max_micros": 263
+          },
+          "trigger_callback": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "poll_async": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        },
+        "bridge": {
+          "typed_tree_conversion": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "update_vdom_received": 0,
+          "update_vdom_applied": 0,
+          "update_vdom_skipped": 0,
+          "update_vdom_coalesced": 0
+        },
+        "ui": {
+          "render_root": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "route_transition",
+      "elapsed_micros": 60437,
+      "metrics": {
+        "runtime": {
+          "eval_script": {
+            "count": 1,
+            "total_micros": 26991,
+            "max_micros": 26991
+          },
+          "eval_module": {
+            "count": 1,
+            "total_micros": 10431,
+            "max_micros": 10431
+          },
+          "drain_payloads": {
+            "count": 3,
+            "total_micros": 439,
+            "max_micros": 219
+          },
+          "trigger_callback": {
+            "count": 1,
+            "total_micros": 12513,
+            "max_micros": 12513
+          },
+          "poll_async": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        },
+        "bridge": {
+          "typed_tree_conversion": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "update_vdom_received": 0,
+          "update_vdom_applied": 0,
+          "update_vdom_skipped": 0,
+          "update_vdom_coalesced": 0
+        },
+        "ui": {
+          "render_root": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "text_input_burst",
+      "elapsed_micros": 71821,
+      "metrics": {
+        "runtime": {
+          "eval_script": {
+            "count": 2,
+            "total_micros": 28171,
+            "max_micros": 26714
+          },
+          "eval_module": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "drain_payloads": {
+            "count": 34,
+            "total_micros": 927,
+            "max_micros": 63
+          },
+          "trigger_callback": {
+            "count": 32,
+            "total_micros": 35973,
+            "max_micros": 2400
+          },
+          "poll_async": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        },
+        "bridge": {
+          "typed_tree_conversion": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "update_vdom_received": 0,
+          "update_vdom_applied": 0,
+          "update_vdom_skipped": 0,
+          "update_vdom_coalesced": 0
+        },
+        "ui": {
+          "render_root": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "modal_open_close",
+      "elapsed_micros": 63192,
+      "metrics": {
+        "runtime": {
+          "eval_script": {
+            "count": 2,
+            "total_micros": 37426,
+            "max_micros": 26716
+          },
+          "eval_module": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "drain_payloads": {
+            "count": 4,
+            "total_micros": 707,
+            "max_micros": 260
+          },
+          "trigger_callback": {
+            "count": 2,
+            "total_micros": 17862,
+            "max_micros": 9091
+          },
+          "poll_async": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        },
+        "bridge": {
+          "typed_tree_conversion": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "update_vdom_received": 0,
+          "update_vdom_applied": 0,
+          "update_vdom_skipped": 0,
+          "update_vdom_coalesced": 0
+        },
+        "ui": {
+          "render_root": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "large_list_render",
+      "elapsed_micros": 765976,
+      "metrics": {
+        "runtime": {
+          "eval_script": {
+            "count": 2,
+            "total_micros": 757242,
+            "max_micros": 730754
+          },
+          "eval_module": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "drain_payloads": {
+            "count": 2,
+            "total_micros": 4605,
+            "max_micros": 4599
+          },
+          "trigger_callback": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "poll_async": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        },
+        "bridge": {
+          "typed_tree_conversion": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "update_vdom_received": 0,
+          "update_vdom_applied": 0,
+          "update_vdom_skipped": 0,
+          "update_vdom_coalesced": 0
+        },
+        "ui": {
+          "render_root": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "fetch_round_trip",
+      "elapsed_micros": 54946,
+      "metrics": {
+        "runtime": {
+          "eval_script": {
+            "count": 2,
+            "total_micros": 34100,
+            "max_micros": 29035
+          },
+          "eval_module": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "drain_payloads": {
+            "count": 4,
+            "total_micros": 173,
+            "max_micros": 65
+          },
+          "trigger_callback": {
+            "count": 1,
+            "total_micros": 707,
+            "max_micros": 707
+          },
+          "poll_async": {
+            "count": 2,
+            "total_micros": 1174,
+            "max_micros": 1156
+          }
+        },
+        "bridge": {
+          "typed_tree_conversion": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "update_vdom_received": 0,
+          "update_vdom_applied": 0,
+          "update_vdom_skipped": 0,
+          "update_vdom_coalesced": 0
+        },
+        "ui": {
+          "render_root": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "storage_round_trip",
+      "elapsed_micros": 57284,
+      "metrics": {
+        "runtime": {
+          "eval_script": {
+            "count": 2,
+            "total_micros": 27725,
+            "max_micros": 26304
+          },
+          "eval_module": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "drain_payloads": {
+            "count": 5,
+            "total_micros": 313,
+            "max_micros": 140
+          },
+          "trigger_callback": {
+            "count": 1,
+            "total_micros": 661,
+            "max_micros": 661
+          },
+          "poll_async": {
+            "count": 3,
+            "total_micros": 1911,
+            "max_micros": 1187
+          }
+        },
+        "bridge": {
+          "typed_tree_conversion": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          },
+          "update_vdom_received": 0,
+          "update_vdom_applied": 0,
+          "update_vdom_skipped": 0,
+          "update_vdom_coalesced": 0
+        },
+        "ui": {
+          "render_root": {
+            "count": 0,
+            "total_micros": 0,
+            "max_micros": 0
+          }
+        }
+      }
+    }
+  ]
+}

@@ -91,6 +91,7 @@ pub struct StorageTransport {
 }
 
 impl StorageTransport {
+    #[allow(dead_code)]
     pub fn new() -> Result<Self> {
         let default_path = std::env::temp_dir().join("rustyjs-ui-storage.json");
         Self::new_with_path(default_path)

@@ -37,6 +37,8 @@ where
                     .on_request_close
                     .as_ref()
                     .map(|callback| on_event(EventPayload::new(callback.id.clone(), Value::Null))),
+                modal.close_on_escape,
+                modal.close_on_backdrop,
             )
         })
         .collect::<Vec<_>>();

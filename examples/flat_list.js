@@ -105,8 +105,9 @@ function AppLayout() {
                     color: '#425466'
                 }
             }),
-            FlatList({
+            NativeList({
                 data: tasks,
+                estimatedItemSize: 72,
                 style: {
                     width: 'fill'
                 },

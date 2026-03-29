@@ -31,7 +31,7 @@ function AppLayout() {
                     color: '#111111'
                 }
             }),
-            SelectInput({
+            NativeSelect({
                 value,
                 placeholder: 'Choose a language',
                 options,

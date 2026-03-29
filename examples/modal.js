@@ -78,6 +78,7 @@ function ModalLayer() {
     return Modal({
         visible: isModalVisible,
         onRequestClose: closeModal,
+        closeOnBackdrop: true,
         backdropColor: '#00000059',
         style: {
             width: 'fill',

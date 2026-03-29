@@ -17,6 +17,7 @@ pub struct TimerError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TimerCompletion {
     Response(TimerResponse),
+    #[allow(dead_code)]
     Error(TimerError),
 }
 

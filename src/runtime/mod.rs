@@ -1,10 +1,13 @@
 mod fetch;
 mod jsengine;
 mod modules;
+#[path = "storage.rs"]
 mod storage;
+#[path = "timer.rs"]
 mod timer;
 
 use crate::bridge::{coalesce_payloads, BridgePayload};
+use crate::perf;
 use anyhow::{anyhow, Context as AnyhowContext, Result};
 use boa_engine::{
     builtins::promise::PromiseState,
@@ -187,8 +190,10 @@ impl JsRuntime {
             .map_err(|err| anyhow!("failed to evaluate JS source: {err}"))?;
         self.context.run_jobs();
         let payloads = self.drain_payloads();
+        let elapsed = started_at.elapsed();
         self.diagnostics.eval_script_calls += 1;
-        self.diagnostics.eval_script_time += started_at.elapsed();
+        self.diagnostics.eval_script_time += elapsed;
+        perf::record_eval_script(elapsed);
         payloads
     }
 
@@ -217,8 +222,10 @@ impl JsRuntime {
             )),
         };
 
+        let elapsed = started_at.elapsed();
         self.diagnostics.eval_module_calls += 1;
-        self.diagnostics.eval_module_time += started_at.elapsed();
+        self.diagnostics.eval_module_time += elapsed;
+        perf::record_eval_module(elapsed);
         result
     }
 
@@ -263,8 +270,10 @@ impl JsRuntime {
             self.diagnostics.coalesced_update_batches += 1;
         }
 
+        let elapsed = started_at.elapsed();
         self.diagnostics.drain_payload_calls += 1;
-        self.diagnostics.drain_payload_time += started_at.elapsed();
+        self.diagnostics.drain_payload_time += elapsed;
+        perf::record_drain_payloads(elapsed);
         Ok(payloads)
     }
 
@@ -284,8 +293,10 @@ impl JsRuntime {
             .map_err(|err| anyhow!("failed to trigger JS callback: {err}"))?;
         self.context.run_jobs();
         let payloads = self.drain_payloads();
+        let elapsed = started_at.elapsed();
         self.diagnostics.callback_calls += 1;
-        self.diagnostics.callback_time += started_at.elapsed();
+        self.diagnostics.callback_time += elapsed;
+        perf::record_trigger_callback(elapsed);
         payloads
     }
 
@@ -350,8 +361,10 @@ impl JsRuntime {
             payloads.extend(self.drain_payloads()?);
         }
 
+        let elapsed = started_at.elapsed();
         self.diagnostics.poll_async_calls += 1;
-        self.diagnostics.poll_async_time += started_at.elapsed();
+        self.diagnostics.poll_async_time += elapsed;
+        perf::record_poll_async(elapsed);
         Ok(payloads)
     }
 

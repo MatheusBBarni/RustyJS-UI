@@ -35,6 +35,8 @@ where
 {
     content: Element<'a, Message, Renderer>,
     on_request_close: Option<Message>,
+    close_on_escape: bool,
+    close_on_backdrop: bool,
 }
 
 impl<'a, Message, Renderer> RenderedModal<'a, Message, Renderer>
@@ -45,10 +47,14 @@ where
     pub fn new(
         content: impl Into<Element<'a, Message, Renderer>>,
         on_request_close: Option<Message>,
+        close_on_escape: bool,
+        close_on_backdrop: bool,
     ) -> Self {
         Self {
             content: content.into(),
             on_request_close,
+            close_on_escape,
+            close_on_backdrop,
         }
     }
 }
@@ -186,6 +192,8 @@ where
                 state,
                 content: &mut modal.content,
                 on_request_close: modal.on_request_close.clone(),
+                close_on_escape: modal.close_on_escape,
+                close_on_backdrop: modal.close_on_backdrop,
             })
             .collect();
 
@@ -215,6 +223,8 @@ where
     state: &'b mut Tree,
     content: &'b mut Element<'a, Message, Renderer>,
     on_request_close: Option<Message>,
+    close_on_escape: bool,
+    close_on_backdrop: bool,
 }
 
 struct ModalStackOverlay<'a, 'b, Message, Renderer>
@@ -292,18 +302,37 @@ where
             return status;
         }
 
-        if matches!(
-            event,
-            Event::Keyboard(keyboard::Event::KeyPressed {
-                key_code: keyboard::KeyCode::Escape,
-                ..
-            })
-        ) {
+        if top_modal.close_on_escape
+            && matches!(
+                event,
+                Event::Keyboard(keyboard::Event::KeyPressed {
+                    key_code: keyboard::KeyCode::Escape,
+                    ..
+                })
+            )
+        {
             if let Some(message) = top_modal.on_request_close.clone() {
                 shell.publish(message);
             }
 
             return event::Status::Captured;
+        }
+
+        if top_modal.close_on_backdrop {
+            let cursor_position = cursor.position().unwrap_or(Point::new(-1.0, -1.0));
+            let clicked_outside = matches!(
+                event,
+                Event::Mouse(mouse::Event::ButtonPressed(_))
+                    | Event::Touch(iced::touch::Event::FingerPressed { .. })
+            ) && !top_layout.bounds().contains(cursor_position);
+
+            if clicked_outside {
+                if let Some(message) = top_modal.on_request_close.clone() {
+                    shell.publish(message);
+                }
+
+                return event::Status::Captured;
+            }
         }
 
         match event {

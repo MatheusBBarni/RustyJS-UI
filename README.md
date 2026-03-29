@@ -23,15 +23,19 @@ The current implementation includes:
 - A VDOM-style bridge between JavaScript and Rust
 - Native rendering through `iced`
 - JS-first path routing with in-memory history via `App.createRouter`
+- Built-in DX helpers via `Navigation`, `Storage`, `Timer`, and runtime diagnostics
 - Basic components:
   - `View`
   - `Text`
   - `Button`
   - `TextInput`
-  - `SelectInput`
-  - `FlatList` (native scrollable list with JS-side item expansion)
+  - `SelectInput` / `NativeSelect`
+  - `FlatList` / `NativeList` (native scrollable list with JS-side item expansion)
+  - `NativeCombobox` (higher-level helper built from `TextInput` + `SelectInput`)
+  - `Tabs` (controlled tab helper)
   - `Modal` (native overlay rendered above the current tree)
   - `Alert` (imperative helper that shows a modal alert with title, description, and two action buttons)
+  - `Toast` (timer-backed notification helper)
 - Style support for common layout and text fields
 - Callback-based event dispatch from Rust back into JavaScript
 
@@ -53,11 +57,14 @@ Available examples:
 
 - [examples/hello_world_counter.js](examples/hello_world_counter.js): renders `Hello world` and an increment button
 - [examples/text_input_echo.js](examples/text_input_echo.js): controlled text input with live echo
-- [examples/select_input_echo.js](examples/select_input_echo.js): controlled select input backed by labeled options
+- [examples/select_input_echo.js](examples/select_input_echo.js): controlled native select input backed by labeled options
 - [examples/flex_form.js](examples/flex_form.js): centered form layout using web-style flex props
-- [examples/flat_list.js](examples/flat_list.js): renders repeated rows from array data with item-specific callbacks
+- [examples/flat_list.js](examples/flat_list.js): renders repeated rows from array data with item-specific callbacks through `NativeList`
 - [examples/task_form_flat_list.js](examples/task_form_flat_list.js): simple task form that adds, completes, and deletes items inside a FlatList
 - [examples/modal.js](examples/modal.js): opens a native modal overlay and dismisses it with buttons or `Escape`
+- [examples/storage_bridge.js](examples/storage_bridge.js): persists and clears preferences through the async `Storage` bridge
+- [examples/tabs.js](examples/tabs.js): controlled tab helper with tab-strip styling
+- [examples/toast.js](examples/toast.js): shows a timer-backed toast notification
 - [examples/multi_file_save_button/main.js](examples/multi_file_save_button/main.js): imports a reusable `SaveButton` component from a sibling module
 - [examples/router_demo/main.js](examples/router_demo/main.js): multi-file route demo with path params, query parsing, and programmatic navigation
 - [examples/login-app/app/main.js](examples/login-app/app/main.js): routed login app with auth modals, protected task and user screens, fetch, `FlatList`, `SelectInput`, and imperative `Alert` confirmations for destructive actions
@@ -123,6 +130,24 @@ Or run the login app example:
 cargo run -- examples/login-app/app/main.js
 ```
 
+Or run the perf harness:
+
+```sh
+cargo run --bin perf_harness
+```
+
+Or use the helper scripts:
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-perf.ps1
+```
+
+```sh
+bash scripts/run-perf.sh
+```
+
+The current dev-mode baseline snapshot lives at [docs/perf-baseline.json](docs/perf-baseline.json).
+
 ## Multi-file ESM Apps
 
 When you pass a file path to `cargo run -- <entry-file>`, RustyJS-UI now treats that file as an ECMAScript module entrypoint. Local component files can use standard static imports and exports without a bundler.
@@ -164,6 +189,8 @@ function calcHeight() {
   });
 }
 ```
+
+Type declarations for the built-in package live in [types/rustyjs-ui.d.ts](types/rustyjs-ui.d.ts).
 
 ## Routing API
 
@@ -227,6 +254,40 @@ App.run({
 });
 ```
 
+## DX APIs
+
+### Storage
+
+`Storage` is an async key/value bridge backed by a host-side JSON store.
+
+```js
+async function saveTheme() {
+  await Storage.set('theme', 'forest');
+  const theme = await Storage.get('theme');
+  App.requestRender();
+}
+```
+
+### Timer
+
+`Timer.after(ms)` resolves after the requested delay and can be used for non-blocking UI flows such as toast dismissal.
+
+```js
+Timer.after(1000).then(() => {
+  App.requestRender();
+});
+```
+
+### Navigation
+
+`Navigation` exposes the router factory and path helpers as a stable public surface.
+
+```js
+const router = Navigation.createRouter({
+  routes: [{ path: '/', render: () => Text({ text: 'Home' }) }]
+});
+```
+
 ## Running Tests
 
 ```sh
@@ -236,6 +297,8 @@ cargo test
 ## SelectInput API
 
 `SelectInput` is backed by Iced's `PickList`, which is the closest native equivalent to a web-style single-select dropdown.
+
+`NativeSelect` is the preferred name for new code and is currently an alias of `SelectInput`.
 
 Supported props:
 
@@ -260,7 +323,7 @@ function handleChange(nextValue) {
   App.requestRender();
 }
 
-SelectInput({
+NativeSelect({
   value,
   placeholder: 'Choose a language',
   options: frameworks,
@@ -283,6 +346,8 @@ Supported props:
 
 - `visible?: boolean` defaults to `true`
 - `transparent?: boolean` defaults to `false`
+- `closeOnEscape?: boolean` defaults to `true`
+- `closeOnBackdrop?: boolean` defaults to `false`
 - `onRequestClose?: () => void` fires when `Escape` is pressed while the modal is open
 - `backdropColor?: string | { red, green, blue, alpha }`
 - `style?: object` applied to the full-window modal container
@@ -370,6 +435,8 @@ View({
 
 `FlatList` accepts React Native-style `data` and `renderItem` props, expands them into child nodes in JavaScript, and renders them through a native `iced::scrollable` container in Rust. It supports scrolling, but it does not provide virtualization yet.
 
+`NativeList` is the preferred name for new code and currently delegates to the same bridge path while accepting forward-looking virtualization props for compatibility.
+
 Supported props:
 
 - `data: Array<any>`
@@ -396,7 +463,7 @@ const todos = [
   { id: '2', title: 'Call Ada', done: true }
 ];
 
-FlatList({
+NativeList({
   data: todos,
   style: {
     gap: 10
@@ -430,6 +497,8 @@ FlatList({
 - [src/ui.rs](src/ui.rs) renders typed nodes into `iced` widgets
 - [examples](examples) contains runnable JavaScript examples
 - [tests](tests) contains integration tests for the bridge
+- [types/rustyjs-ui.d.ts](types/rustyjs-ui.d.ts) defines the typed built-in package surface
+- [src/bin/perf_harness.rs](src/bin/perf_harness.rs) provides a repeatable headless perf harness
 
 ## Status
 

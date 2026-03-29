@@ -85,6 +85,22 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_exposes_storage_timer_and_dx_helpers() {
+        let source = bootstrap().source;
+        assert!(source.contains("globalThis.Storage = {"));
+        assert!(source.contains("globalThis.Timer = {"));
+        assert!(source.contains("globalThis.Navigation = {"));
+        assert!(source.contains("globalThis.NativeSelect = (props) => createNode('SelectInput', props);"));
+        assert!(source.contains("globalThis.NativeList = (props) => createNativeList(props);"));
+        assert!(source.contains("globalThis.NativeCombobox = (props) => createNativeCombobox(props);"));
+        assert!(source.contains("globalThis.Tabs = (props) => createTabs(props);"));
+        assert!(source.contains("globalThis.Toast = {"));
+        assert!(source.contains("action: 'STORAGE_REQUEST'"));
+        assert!(source.contains("action: 'TIMER_REQUEST'"));
+        assert!(source.contains("action: 'DEV_WARNING'"));
+    }
+
+    #[test]
     fn bundled_sample_app_matches_prd_shape() {
         let source = counter_app().source;
         assert!(source.contains("function AppLayout()"));

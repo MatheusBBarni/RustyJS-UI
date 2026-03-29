@@ -214,18 +214,44 @@ impl AppModuleLoader {
 
 const BUILTIN_RUSTYJS_UI_MODULE: &str = r#"
 const App = globalThis.App;
+const Navigation = globalThis.Navigation;
 const View = globalThis.View;
 const Text = globalThis.Text;
 const Button = globalThis.Button;
 const TextInput = globalThis.TextInput;
 const SelectInput = globalThis.SelectInput;
+const NativeSelect = globalThis.NativeSelect;
 const FlatList = globalThis.FlatList;
+const NativeList = globalThis.NativeList;
+const NativeCombobox = globalThis.NativeCombobox;
+const Tabs = globalThis.Tabs;
 const Modal = globalThis.Modal;
 const Alert = globalThis.Alert;
+const Toast = globalThis.Toast;
 const fetch = globalThis.fetch;
 const Storage = globalThis.Storage;
+const Timer = globalThis.Timer;
 
-export { App, View, Text, Button, TextInput, SelectInput, FlatList, Modal, Alert, fetch, Storage };
+export {
+  App,
+  Navigation,
+  View,
+  Text,
+  Button,
+  TextInput,
+  SelectInput,
+  NativeSelect,
+  FlatList,
+  NativeList,
+  NativeCombobox,
+  Tabs,
+  Modal,
+  Alert,
+  Toast,
+  fetch,
+  Storage,
+  Timer
+};
 "#;
 
 impl ModuleLoader for AppModuleLoader {

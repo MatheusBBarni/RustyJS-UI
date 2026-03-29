@@ -46,6 +46,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_false() -> bool {
+    false
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextInputType {
@@ -102,6 +106,10 @@ pub struct WireProps {
     pub transparent: bool,
     #[serde(default, alias = "onRequestClose")]
     pub on_request_close: Option<CallbackRef>,
+    #[serde(default = "default_true", alias = "closeOnEscape")]
+    pub close_on_escape: bool,
+    #[serde(default = "default_false", alias = "closeOnBackdrop")]
+    pub close_on_backdrop: bool,
     #[serde(
         default,
         alias = "backdropColor",
@@ -126,6 +134,8 @@ impl Default for WireProps {
             visible: default_true(),
             transparent: false,
             on_request_close: None,
+            close_on_escape: default_true(),
+            close_on_backdrop: default_false(),
             backdrop_color: None,
         }
     }
@@ -292,6 +302,8 @@ impl TryFrom<WireNode> for UiNode {
                 visible: node.props.visible,
                 transparent: node.props.transparent,
                 on_request_close: node.props.on_request_close,
+                close_on_escape: node.props.close_on_escape,
+                close_on_backdrop: node.props.close_on_backdrop,
                 backdrop_color: node.props.backdrop_color,
             })),
             other => Err(anyhow!("unsupported node type: {other}")),
@@ -479,6 +491,8 @@ pub struct ModalNode {
     pub visible: bool,
     pub transparent: bool,
     pub on_request_close: Option<CallbackRef>,
+    pub close_on_escape: bool,
+    pub close_on_backdrop: bool,
     pub backdrop_color: Option<StyleColor>,
 }
 
@@ -490,6 +504,8 @@ impl ModalNode {
             visible: true,
             transparent: false,
             on_request_close: None,
+            close_on_escape: true,
+            close_on_backdrop: false,
             backdrop_color: None,
         }
     }
@@ -701,11 +717,34 @@ mod tests {
                 assert!(modal.visible);
                 assert!(modal.transparent);
                 assert_eq!(modal.on_request_close, Some(CallbackRef::new("cb_11")));
+                assert!(modal.close_on_escape);
+                assert!(!modal.close_on_backdrop);
                 assert_eq!(
                     modal.backdrop_color,
                     Some(StyleColor::from_rgba8(0x11, 0x22, 0x33, 0xAA))
                 );
                 assert_eq!(modal.children.len(), 1);
+            }
+            other => panic!("expected Modal node, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn modal_close_policy_props_round_trip() {
+        let value = json!({
+            "type": "Modal",
+            "props": {
+                "closeOnEscape": false,
+                "closeOnBackdrop": true
+            }
+        });
+
+        let node = UiNode::try_from(value).unwrap();
+
+        match node {
+            UiNode::Modal(modal) => {
+                assert!(!modal.close_on_escape);
+                assert!(modal.close_on_backdrop);
             }
             other => panic!("expected Modal node, got {other:?}"),
         }

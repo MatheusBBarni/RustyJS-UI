@@ -85,18 +85,32 @@ class PendingAsyncRegistry {
 const GlobalCallbackRegistry = new CallbackRegistry();
 const PendingFetchRegistryInstance = new PendingAsyncRegistry();
 const PendingStorageRegistryInstance = new PendingAsyncRegistry();
+const PendingTimerRegistryInstance = new PendingAsyncRegistry();
 const AlertState = {
     current: null
 };
+const ToastState = {
+    items: [],
+    nextId: 1
+};
 const DevWarningRegistry = new Set();
 
-function warnOnce(message) {
+function emitDevWarning(message, details) {
+    dispatchToRust({
+        action: 'DEV_WARNING',
+        message,
+        ...(details ? { details: String(details) } : {})
+    });
+}
+
+function warnOnce(message, details) {
     if (DevWarningRegistry.has(message)) {
         return;
     }
 
     DevWarningRegistry.add(message);
     console.warn(message);
+    emitDevWarning(message, details);
 }
 
 function normalizeFetchHeaders(headers = {}) {
@@ -239,12 +253,34 @@ function rejectPendingStorage(requestId, error) {
     }
 }
 
+function resolvePendingTimer(requestId) {
+    const handled = PendingTimerRegistryInstance.trigger(requestId, (record) =>
+        record.resolve()
+    );
+
+    if (!handled) {
+        console.warn(`Timer request ${requestId} not found.`);
+    }
+}
+
+function rejectPendingTimer(requestId, error) {
+    const handled = PendingTimerRegistryInstance.trigger(requestId, (record) =>
+        record.reject(normalizeFetchError(error))
+    );
+
+    if (!handled) {
+        console.warn(`Timer request ${requestId} not found.`);
+    }
+}
+
 globalThis.RustBridge = {
     trigger: (id, payload) => GlobalCallbackRegistry.trigger(id, payload),
     resolveFetch: resolvePendingFetch,
     rejectFetch: rejectPendingFetch,
     resolveStorage: resolvePendingStorage,
-    rejectStorage: rejectPendingStorage
+    rejectStorage: rejectPendingStorage,
+    resolveTimer: resolvePendingTimer,
+    rejectTimer: rejectPendingTimer
 };
 
 if (!globalThis.console) {
@@ -327,6 +363,12 @@ function normalizeStyle(style = {}) {
 function normalizeNodeProps(type, props = {}) {
     const normalized = { ...props };
 
+    if (type === 'Button') {
+        if (normalized.onPress !== undefined && normalized.onClick === undefined) {
+            normalized.onClick = normalized.onPress;
+        }
+    }
+
     if (type === 'TextInput') {
         if (normalized.onValueChange !== undefined && normalized.onChange === undefined) {
             normalized.onChange = normalized.onValueChange;
@@ -356,6 +398,14 @@ function normalizeNodeProps(type, props = {}) {
     if (type === 'Modal') {
         if (normalized.onClose !== undefined && normalized.onRequestClose === undefined) {
             normalized.onRequestClose = normalized.onClose;
+        }
+
+        if (normalized.closeOnEscape === undefined) {
+            normalized.closeOnEscape = true;
+        }
+
+        if (normalized.closeOnBackdrop === undefined) {
+            normalized.closeOnBackdrop = false;
         }
     }
 
@@ -409,6 +459,137 @@ function createFlatList(props = {}) {
             View({
                 style: resolveFlatListContentStyle(contentContainerStyle, horizontal),
                 children: listChildren
+            })
+        ]
+    });
+}
+
+function createNativeList(props = {}) {
+    if (typeof props.onVisibleRangeChange === 'function') {
+        warnOnce('NativeList.onVisibleRangeChange is not implemented natively yet. The callback will not fire in this phase.');
+    }
+
+    if (props.estimatedItemSize !== undefined) {
+        warnOnce('NativeList virtualization is not implemented natively yet. estimatedItemSize is accepted for API compatibility only.');
+    }
+
+    return createFlatList(props);
+}
+
+function createNativeCombobox(props = {}) {
+    const {
+        value = '',
+        options = [],
+        placeholder = '',
+        onChange,
+        onInputChange,
+        allowCustomValue = false,
+        style,
+        inputStyle,
+        listStyle
+    } = props;
+    const normalizedValue = String(value ?? '');
+    const normalizedOptions = Array.isArray(options) ? options : [];
+    const filteredOptions = normalizedOptions.filter((option) => {
+        const label = typeof option === 'string' ? option : option?.label ?? option?.value ?? '';
+        const candidate = typeof label === 'string' ? label : String(label);
+        return !normalizedValue || candidate.toLowerCase().includes(normalizedValue.toLowerCase());
+    });
+    const selectedOption = filteredOptions.find((option) => {
+        const optionValue = typeof option === 'string' ? option : option?.value ?? option?.label ?? '';
+        return String(optionValue) === normalizedValue;
+    });
+
+    return View({
+        style: {
+            direction: 'column',
+            gap: 8,
+            ...style
+        },
+        children: [
+            TextInput({
+                value: normalizedValue,
+                placeholder,
+                onChange: (nextValue) => {
+                    if (typeof onInputChange === 'function') {
+                        onInputChange(nextValue);
+                    }
+
+                    if (allowCustomValue && typeof onChange === 'function') {
+                        onChange(nextValue);
+                    }
+                },
+                style: inputStyle
+            }),
+            SelectInput({
+                value: selectedOption ? normalizedValue : '',
+                placeholder: filteredOptions.length === 0 ? 'No matching options' : 'Choose an option',
+                options: filteredOptions,
+                onChange,
+                style: listStyle
+            })
+        ]
+    });
+}
+
+function createTabs(props = {}) {
+    const {
+        value,
+        tabs = [],
+        onChange,
+        style,
+        tabListStyle,
+        tabStyle,
+        activeTabStyle,
+        panelStyle
+    } = props;
+    const normalizedTabs = Array.isArray(tabs) ? tabs : [];
+    const activeTab = normalizedTabs.find((tab) => tab && tab.value === value) ?? normalizedTabs[0] ?? null;
+    const panelContent =
+        activeTab && typeof activeTab.render === 'function'
+            ? activeTab.render(activeTab)
+            : activeTab?.content ?? null;
+
+    return View({
+        style: {
+            direction: 'column',
+            gap: 12,
+            ...style
+        },
+        children: [
+            View({
+                style: {
+                    direction: 'row',
+                    gap: 8,
+                    ...tabListStyle
+                },
+                children: normalizedTabs.map((tab) =>
+                    Button({
+                        text: String(tab?.label ?? tab?.value ?? ''),
+                        disabled: Boolean(tab?.disabled),
+                        onClick:
+                            typeof onChange === 'function' && !tab?.disabled
+                                ? () => onChange(tab.value)
+                                : undefined,
+                        style: {
+                            padding: { x: 12, y: 10 },
+                            borderRadius: 10,
+                            backgroundColor:
+                                activeTab && tab?.value === activeTab.value ? '#1E7A5F' : '#DDE6EF',
+                            color:
+                                activeTab && tab?.value === activeTab.value ? '#FFFFFF' : '#102033',
+                            ...(tabStyle || {}),
+                            ...(activeTab && tab?.value === activeTab.value ? activeTabStyle || {} : {})
+                        }
+                    })
+                )
+            }),
+            View({
+                style: {
+                    direction: 'column',
+                    ...panelStyle
+                },
+                children: [panelContent]
             })
         ]
     });
@@ -487,6 +668,147 @@ function createAlert(props = {}) {
 
 function dismissAlert() {
     AlertState.current = null;
+}
+
+function dismissToast(id) {
+    const normalizedId = String(id ?? '');
+    const nextItems = ToastState.items.filter((item) => item.id !== normalizedId);
+
+    if (nextItems.length === ToastState.items.length) {
+        return;
+    }
+
+    ToastState.items = nextItems;
+
+    if (globalThis.App && typeof globalThis.App.requestRender === 'function') {
+        globalThis.App.requestRender();
+    }
+}
+
+function clearToasts() {
+    if (ToastState.items.length === 0) {
+        return;
+    }
+
+    ToastState.items = [];
+
+    if (globalThis.App && typeof globalThis.App.requestRender === 'function') {
+        globalThis.App.requestRender();
+    }
+}
+
+function triggerToast(props = {}) {
+    const id = `toast_${ToastState.nextId++}`;
+    const item = {
+        id,
+        tone: props.tone ?? 'info',
+        message: String(props.message ?? props.title ?? ''),
+        actionLabel: props.actionLabel,
+        onAction: props.onAction,
+        onDismiss: props.onDismiss
+    };
+
+    ToastState.items = [...ToastState.items, item];
+
+    const durationMs = Number(props.durationMs ?? 0);
+    if (Number.isFinite(durationMs) && durationMs > 0) {
+        Timer.after(durationMs)
+            .then(() => {
+                dismissToast(id);
+                if (typeof item.onDismiss === 'function') {
+                    item.onDismiss();
+                }
+            })
+            .catch(() => {});
+    }
+
+    if (globalThis.App && typeof globalThis.App.requestRender === 'function') {
+        globalThis.App.requestRender();
+    }
+
+    return id;
+}
+
+function renderActiveToasts() {
+    if (ToastState.items.length === 0) {
+        return null;
+    }
+
+    return View({
+        style: {
+            direction: 'column',
+            gap: 10,
+            alignItems: 'end'
+        },
+        children: ToastState.items.map((item) =>
+            View({
+                style: {
+                    width: 320,
+                    padding: { x: 14, y: 12 },
+                    direction: 'column',
+                    gap: 10,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: '#D5DEE8',
+                    backgroundColor:
+                        item.tone === 'success'
+                            ? '#E7F6EF'
+                            : item.tone === 'error'
+                                ? '#FCE8E6'
+                                : '#F7FAFC'
+                },
+                children: [
+                    Text({
+                        text: item.message,
+                        style: {
+                            color: '#102033'
+                        }
+                    }),
+                    View({
+                        style: {
+                            direction: 'row',
+                            gap: 10,
+                            justifyContent: 'flex-end'
+                        },
+                        children: [
+                            item.actionLabel
+                                ? Button({
+                                    text: String(item.actionLabel),
+                                    onClick: () => {
+                                        if (typeof item.onAction === 'function') {
+                                            item.onAction();
+                                        }
+                                        dismissToast(item.id);
+                                    },
+                                    style: {
+                                        padding: { x: 12, y: 10 },
+                                        borderRadius: 10,
+                                        backgroundColor: '#1E7A5F',
+                                        color: '#FFFFFF'
+                                    }
+                                })
+                                : null,
+                            Button({
+                                text: 'Dismiss',
+                                onClick: () => {
+                                    dismissToast(item.id);
+                                    if (typeof item.onDismiss === 'function') {
+                                        item.onDismiss();
+                                    }
+                                },
+                                style: {
+                                    padding: { x: 12, y: 10 },
+                                    borderRadius: 10,
+                                    backgroundColor: '#DDE6EF',
+                                    color: '#102033'
+                                }
+                            })
+                        ]
+                    })
+                ]
+            })
+        )
+    });
 }
 
 function triggerAlert(props = {}) {
@@ -864,14 +1186,30 @@ class AppRouter {
     }
 }
 
+globalThis.Navigation = {
+    createRouter: (config = {}) => globalThis.App.createRouter(config),
+    normalizePath,
+    parseLocation,
+    matchRoute: (routePath, pathname) => matchRoutePath(routePath, pathname)
+};
+
 globalThis.View = (props) => createNode('View', props);
 globalThis.Text = (props) => createNode('Text', props);
 globalThis.Button = (props) => createNode('Button', props);
 globalThis.TextInput = (props) => createNode('TextInput', props);
 globalThis.SelectInput = (props) => createNode('SelectInput', props);
+globalThis.NativeSelect = (props) => createNode('SelectInput', props);
 globalThis.FlatList = (props) => createFlatList(props);
+globalThis.NativeList = (props) => createNativeList(props);
+globalThis.NativeCombobox = (props) => createNativeCombobox(props);
+globalThis.Tabs = (props) => createTabs(props);
 globalThis.Modal = (props) => createNode('Modal', props);
 globalThis.Alert = (props) => triggerAlert(props);
+globalThis.Toast = {
+    show: (props) => triggerToast(props),
+    dismiss: (id) => dismissToast(id),
+    clear: () => clearToasts()
+};
 
 globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
     const requestId = PendingFetchRegistryInstance.register({
@@ -892,6 +1230,23 @@ globalThis.fetch = (url, options = {}) => new Promise((resolve, reject) => {
         ...(normalizedBody === undefined ? {} : { body: normalizedBody })
     });
 });
+
+globalThis.Timer = {
+    after(delayMs) {
+        return new Promise((resolve, reject) => {
+            const requestId = PendingTimerRegistryInstance.register({
+                resolve,
+                reject
+            });
+
+            dispatchToRust({
+                action: 'TIMER_REQUEST',
+                requestId,
+                delayMs: Math.max(0, Number(delayMs) || 0)
+            });
+        });
+    }
+};
 
 function storageRequest(operation, key, value) {
     return new Promise((resolve, reject) => {
@@ -972,13 +1327,16 @@ class AppEngine {
 
             const vdomTree = this.rootRenderFn();
             const alertNode = renderActiveAlert();
-            const tree = alertNode
+            const toastNode = renderActiveToasts();
+            const tree = alertNode || toastNode
                 ? View({
                     style: {
                         width: 'fill',
-                        height: 'fill'
+                        height: 'fill',
+                        direction: 'column',
+                        gap: 12
                     },
-                    children: [vdomTree, alertNode]
+                    children: [vdomTree, toastNode, alertNode]
                 })
                 : vdomTree;
 
